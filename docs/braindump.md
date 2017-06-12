@@ -8,3 +8,4 @@ http://maverick.inria.fr/Publications/2009/CNLE09/CNLE09.pdf
 # Voxel rendering
 
 https://medium.com/@fogleman/voxel-rendering-techniques-fa8d869457ca
+http://research.nvidia.com/sites/default/files/pubs/2010-02_Efficient-Sparse-Voxel/laine2010i3d_paper.pdf
