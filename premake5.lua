@@ -38,4 +38,4 @@ project (project_name)
         includedirs { ext_path.."SDL-2.0.4/include" }
         libdirs { ext_path.."SDL-2.0.4/bin/win64" }
         links { "SDL2", "SDL2main", "opengl32" }
-        postbuildcommands { "{COPY} ".. ext_path.."SDL-2.0.4/bin/win64/SDL2.dll %{cfg.targetdir}" }
+        postbuildcommands { "{COPY} ".. os.getcwd().."/"..ext_path.."SDL-2.0.4/bin/win64/SDL2.dll %{cfg.targetdir}" }
