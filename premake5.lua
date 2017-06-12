@@ -12,6 +12,13 @@ workspace (project_name)
     symbols ("On")
     targetdir ("bin/%{cfg.system}/%{cfg.buildcfg}")
 
+    filter "configurations:debug"
+    defines { "DEBUG" }
+
+    filter "configurations:release"
+        defines { "NDEBUG" }
+        optimize ("Speed")
+
     filter "action:vs*"
         defines { "_CRT_SECURE_NO_WARNINGS" }
 
@@ -23,11 +30,6 @@ group ("ext")
             path.join(ext_dir, "imgui-1.50/imgui_draw.cpp"),
             path.join(ext_dir, "imgui-1.50/*.h"),
         }
-        filter "configurations:debug"
-            defines { "DEBUG" }
-        filter "configurations:release"
-            defines { "NDEBUG" }
-            optimize ("Speed")
     project ("gl3w")
         kind ("StaticLib")
         files {
@@ -35,11 +37,7 @@ group ("ext")
             path.join(ext_dir, "gl3w/**.h"),
         }
         includedirs { path.join(ext_dir, "gl3w/include") }
-        filter "configurations:debug"
-            defines { "DEBUG" }
-        filter "configurations:release"
-            defines { "NDEBUG" }
-            optimize ("Speed")
+
 group ("")
 
 project (project_name)
@@ -59,13 +57,6 @@ project (project_name)
         disablewarnings {
             "4201", -- nonstandard extension used: nameless struct/union
         }
-
-    filter "configurations:debug"
-        defines { "DEBUG" }
-
-    filter "configurations:release"
-        defines { "NDEBUG" }
-        optimize ("Speed")
 
     filter "system:macosx"
         includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
