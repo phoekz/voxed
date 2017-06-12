@@ -13,9 +13,17 @@
 #define vx_countof(arr) (sizeof(arr) / sizeof(arr[0]))
 #define vx_fatal(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__), putc('\n', stderr), exit(1)
 
+namespace vx
+{
+typedef glm::vec2 Vec2f;
+typedef glm::vec3 Vec3f;
 typedef glm::vec4 Vec4f;
 
-struct VoxedApp
+typedef glm::ivec2 Vec2i;
+typedef glm::ivec3 Vec3i;
+typedef glm::ivec4 Vec4i;
+
+struct App
 {
     bool running = true;
 
@@ -37,7 +45,10 @@ struct VoxedApp
         float total, delta;
         uint64_t clocks;
     } time;
-} app;
+};
+}
+
+static vx::App app;
 
 int main(int /*argc*/, char** /*argv*/)
 {
@@ -97,7 +108,7 @@ int main(int /*argc*/, char** /*argv*/)
         // rendering
 
         {
-            Vec4f c = app.gl.clearColor;
+            vx::Vec4f c = app.gl.clearColor;
             glClearColor(c.x, c.y, c.z, c.w);
             glClear(GL_COLOR_BUFFER_BIT);
         }
