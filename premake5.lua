@@ -1,5 +1,5 @@
 project_name = "voxed"
-ext_path = "ext/"
+ext_dir = "ext"
 
 workspace (project_name)
     configurations { "debug", "release" }
@@ -15,6 +15,21 @@ workspace (project_name)
     filter "action:vs*"
         defines { "_CRT_SECURE_NO_WARNINGS" }
 
+group ("ext")
+    project ("imgui")
+        kind ("StaticLib")
+        files {
+            path.join(ext_dir, "imgui-1.50/imgui.cpp"),
+            path.join(ext_dir, "imgui-1.50/imgui_draw.cpp"),
+            path.join(ext_dir, "imgui-1.50/*.h"),
+        }
+        filter "configurations:debug"
+            defines { "DEBUG" }
+        filter "configurations:release"
+            defines { "NDEBUG" }
+            optimize ("Speed")
+group ("")
+
 project (project_name)
     kind ("ConsoleApp")
     warnings ("Extra")
@@ -22,9 +37,19 @@ project (project_name)
         "src/**.cpp",
         "src/**.h",
     }
+    includedirs {
+        path.join(ext_dir, "glm-0.9.8.4/glm"),
+        path.join(ext_dir, "imgui-1.50"),
+    }
+
+    filter "action:vs*"
+        disablewarnings {
+            "4201", -- nonstandard extension used: nameless struct/union
+        }
 
     filter "configurations:debug"
         defines { "DEBUG" }
+
     filter "configurations:release"
         defines { "NDEBUG" }
         optimize ("Speed")
@@ -35,7 +60,8 @@ project (project_name)
         linkoptions { "-F/Library/Frameworks -framework SDL2" }
 
     filter "system:windows"
-        includedirs { ext_path.."SDL-2.0.4/include" }
-        libdirs { ext_path.."SDL-2.0.4/bin/win64" }
-        links { "SDL2", "SDL2main", "opengl32" }
-        postbuildcommands { "{COPY} ".. os.getcwd().."/"..ext_path.."SDL-2.0.4/bin/win64/SDL2.dll %{cfg.targetdir}" }
+        includedirs { path.join(ext_dir, "SDL-2.0.4/include") }
+        libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
+        defines { "SDL_MAIN_HANDLED" }
+        links { "SDL2", "opengl32", "imgui" }
+        postbuildcommands { "{COPY} " .. path.join(os.getcwd(), ext_dir, "SDL-2.0.4/bin/win64/SDL2.dll") .. " %{cfg.targetdir}" }
