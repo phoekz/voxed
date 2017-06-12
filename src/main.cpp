@@ -1,6 +1,7 @@
 #include "SDL.h"
 #include "imgui.h"
 #include "glm.hpp"
+#include "GL/gl3w.h"
 
 #include <stdio.h>
 #include <stdint.h>

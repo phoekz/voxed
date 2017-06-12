@@ -28,6 +28,18 @@ group ("ext")
         filter "configurations:release"
             defines { "NDEBUG" }
             optimize ("Speed")
+    project ("gl3w")
+        kind ("StaticLib")
+        files {
+            path.join(ext_dir, "gl3w/**.c"),
+            path.join(ext_dir, "gl3w/**.h"),
+        }
+        includedirs { path.join(ext_dir, "gl3w/include") }
+        filter "configurations:debug"
+            defines { "DEBUG" }
+        filter "configurations:release"
+            defines { "NDEBUG" }
+            optimize ("Speed")
 group ("")
 
 project (project_name)
@@ -40,6 +52,7 @@ project (project_name)
     includedirs {
         path.join(ext_dir, "glm-0.9.8.4/glm"),
         path.join(ext_dir, "imgui-1.50"),
+        path.join(ext_dir, "gl3w/include"),
     }
 
     filter "action:vs*"
@@ -63,5 +76,5 @@ project (project_name)
         includedirs { path.join(ext_dir, "SDL-2.0.4/include") }
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
         defines { "SDL_MAIN_HANDLED" }
-        links { "SDL2", "opengl32", "imgui" }
+        links { "SDL2", "opengl32", "gl3w", "imgui" }
         postbuildcommands { "{COPY} " .. path.join(os.getcwd(), ext_dir, "SDL-2.0.4/bin/win64/SDL2.dll") .. " %{cfg.targetdir}" }
