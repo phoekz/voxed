@@ -1,4 +1,5 @@
 #include "common/aliases.h"
+#include "common/platform.h"
 
 #include "SDL.h"
 #include "imgui.h"
@@ -34,9 +35,10 @@ struct app
     struct
     {
         float total, delta;
-        uint64_t clocks;
+        u64 clocks;
     } time;
 };
+
 void fatal(const char* fmt, ...)
 {
     va_list args;
