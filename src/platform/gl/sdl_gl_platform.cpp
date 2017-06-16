@@ -60,21 +60,21 @@ void platform_swap_buffers(vx::platform* platform)
 
 vx::gpu_channel* gpu_channel_open(vx::gpu_device* gpu)
 {
-    // TODO(vinht): Allocate command buffer.
+    // TODO(vinht): Allocate.
     (void)gpu;
     return nullptr;
 }
 
 void gpu_channel_close(vx::gpu_device* gpu, vx::gpu_channel* channel)
 {
-    // TODO(vinht): Execute command buffer.
+    // TODO(vinht): Execute.
     (void)gpu;
     (void)channel;
 }
 
 void gpu_channel_clear_cmd(vx::gpu_channel* channel, vx::gpu_clear_cmd_args* args)
 {
-    // TODO(vinht): Record to a command buffer.
+    // TODO(vinht): Record.
     (void)channel;
 
     float4 c = args->color;
