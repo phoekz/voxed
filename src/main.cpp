@@ -85,7 +85,7 @@ int main(int /*argc*/, char** /*argv*/)
         // timing
 
         {
-            uint64_t prev, delta;
+            vx::u64 prev, delta;
             prev = app.time.clocks;
             app.time.clocks = SDL_GetPerformanceCounter();
             delta = app.time.clocks - prev;
