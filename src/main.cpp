@@ -11,18 +11,9 @@
 #include <math.h>
 
 #define vx_countof(arr) (sizeof(arr) / sizeof(arr[0]))
-#define vx_fatal(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__), putc('\n', stderr), exit(1)
 
 namespace vx
 {
-typedef glm::vec2 Vec2f;
-typedef glm::vec3 Vec3f;
-typedef glm::vec4 Vec4f;
-
-typedef glm::ivec2 Vec2i;
-typedef glm::ivec3 Vec3i;
-typedef glm::ivec4 Vec4i;
-
 struct App
 {
     bool running = true;
@@ -30,14 +21,14 @@ struct App
     struct
     {
         SDL_Window* handle;
-        int width = 1600, height = 1200;
+        int2 size = int2(1600, 1200);
         const char* title = "voxed";
     } window;
 
     struct
     {
         SDL_GLContext context;
-        Vec4f clearColor = Vec4f(0.95f, 0.95f, 0.95f, 1.0f);
+        float4 clearColor = float4(0.95f, 0.95f, 0.95f, 1.0f);
     } gl;
 
     struct
@@ -46,9 +37,16 @@ struct App
         uint64_t clocks;
     } time;
 };
+void fatal(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    putc('\n', stderr);
+    va_end(args);
+    exit(1);
 }
-
-static vx::App app;
+}
 
 int main(int /*argc*/, char** /*argv*/)
 {
@@ -56,23 +54,25 @@ int main(int /*argc*/, char** /*argv*/)
     // init
     //
 
+    vx::App app;
+
     SDL_Init(SDL_INIT_VIDEO);
 
     app.window.handle = SDL_CreateWindow(
         app.window.title,
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        app.window.width,
-        app.window.height,
+        app.window.size.x,
+        app.window.size.y,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
     if (!app.window.handle)
-        vx_fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
+        vx::fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
 
     app.gl.context = SDL_GL_CreateContext(app.window.handle);
 
     if (gl3wInit() == -1)
-        vx_fatal("gl3wInit failed");
+        vx::fatal("gl3wInit failed");
 
     //
     // main loop
@@ -108,7 +108,7 @@ int main(int /*argc*/, char** /*argv*/)
         // rendering
 
         {
-            vx::Vec4f c = app.gl.clearColor;
+            vx::float4 c = app.gl.clearColor;
             glClearColor(c.x, c.y, c.z, c.w);
             glClear(GL_COLOR_BUFFER_BIT);
         }
