@@ -14,7 +14,7 @@
 
 namespace vx
 {
-struct App
+struct app
 {
     bool running = true;
 
@@ -54,7 +54,7 @@ int main(int /*argc*/, char** /*argv*/)
     // init
     //
 
-    vx::App app;
+    vx::app app;
 
     SDL_Init(SDL_INIT_VIDEO);
 
