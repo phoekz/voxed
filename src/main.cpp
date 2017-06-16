@@ -1,3 +1,5 @@
+#include "common/aliases.h"
+
 #include "SDL.h"
 #include "imgui.h"
 #include "glm.hpp"
