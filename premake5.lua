@@ -43,14 +43,22 @@ group ("")
 project (project_name)
     kind ("ConsoleApp")
     warnings ("Extra")
+
     files {
         "src/**.cpp",
         "src/**.h",
     }
+    removefiles {
+        -- exclude rendering backends by default and
+        -- add them back in later per platform
+        "src/platform/*/**"
+    }
+
     includedirs {
         path.join(ext_dir, "glm-0.9.8.4/glm"),
         path.join(ext_dir, "imgui-1.50"),
         path.join(ext_dir, "gl3w/include"),
+        path.join("src"),
     }
 
     filter "action:vs*"
@@ -59,11 +67,19 @@ project (project_name)
         }
 
     filter "system:macosx"
+        files {
+            "src/platform/mtl/**.mm",
+            "src/platform/mtl/**.h",
+        }
         includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
         links { "Cocoa.framework" }
         linkoptions { "-F/Library/Frameworks -framework SDL2" }
 
     filter "system:windows"
+        files {
+            "src/platform/gl/**.cpp",
+            "src/platform/gl/**.h",
+        }
         includedirs { path.join(ext_dir, "SDL-2.0.4/include") }
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
         defines { "SDL_MAIN_HANDLED" }
