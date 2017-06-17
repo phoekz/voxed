@@ -63,13 +63,16 @@ project (project_name)
             "4201", -- nonstandard extension used: nameless struct/union
         }
 
+    filter "action:gmake"
+        buildoptions { "-std=c++14" }
+
     filter "system:macosx"
         files {
             "src/integrations/mtl/**.mm",
         }
-        includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
-        links { "Cocoa.framework" }
-        linkoptions { "-F/Library/Frameworks -framework SDL2" }
+        includedirs { "/usr/local/Cellar/sdl2/2.0.5/include/SDL2" }
+        libdirs { "/usr/local/Cellar/sdl2/2.0.5/lib" }
+        links { "SDL2" }
 
     filter "system:windows"
         files {
