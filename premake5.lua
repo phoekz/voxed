@@ -23,6 +23,7 @@ workspace (project_name)
         defines { "_CRT_SECURE_NO_WARNINGS" }
 
 group ("ext")
+
     project ("imgui")
         kind ("StaticLib")
         files {
@@ -54,9 +55,10 @@ project (project_name)
     includedirs {
         path.join(ext_dir, "glm-0.9.8.4/glm"),
         path.join(ext_dir, "imgui-1.50"),
-        path.join(ext_dir, "gl3w/include"),
         path.join("src"),
     }
+
+    links { "SDL2", "imgui" }
 
     filter "action:vs*"
         disablewarnings {
@@ -68,18 +70,32 @@ project (project_name)
 
     filter "system:macosx"
         files {
-            "src/integrations/mtl/**.mm",
+            "src/integrations/mtl/**",
         }
         includedirs { "/usr/local/Cellar/sdl2/2.0.5/include/SDL2" }
         libdirs { "/usr/local/Cellar/sdl2/2.0.5/lib" }
-        links { "SDL2" }
+        links {
+            "Foundation.framework",
+            "Cocoa.framework",
+            "Metal.framework",
+            "Quartz.framework",
+        }
+        prebuildcommands {
+            "exec "
+            .. path.join(os.getcwd(), "scripts/build_metal_shaders.sh")
+            .. " "
+            .. path.join(os.getcwd(), "src/shaders/mtl")
+        }
 
     filter "system:windows"
         files {
             "src/integrations/gl/**",
         }
-        includedirs { path.join(ext_dir, "SDL-2.0.4/include") }
+        includedirs {
+            path.join(ext_dir, "SDL-2.0.4/include"),
+            path.join(ext_dir, "gl3w/include"),
+        }
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
         defines { "SDL_MAIN_HANDLED" }
-        links { "SDL2", "opengl32", "gl3w", "imgui" }
+        links { "gl3w", "opengl32" }
         postbuildcommands { "{COPY} " .. path.join(os.getcwd(), ext_dir, "SDL-2.0.4/bin/win64/SDL2.dll") .. " %{cfg.targetdir}" }

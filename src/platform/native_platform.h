@@ -17,5 +17,6 @@ struct platform
 
 void platform_init(platform* platform, const char* title, int2 initial_size);
 void platform_quit(platform* platform);
-void platform_swap_buffers(platform* platform);
+void platform_frame_begin(platform* platform);
+void platform_frame_end(platform* platform);
 }
