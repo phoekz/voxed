@@ -4,14 +4,17 @@
 #include "SDL.h"
 #include "GL/gl3w.h"
 
+namespace
+{
 struct gl_device
 {
     SDL_GLContext ctx;
 };
+}
 
 namespace vx
 {
-void platform_init(vx::platform* platform, const char* title, int2 initial_size)
+void platform_init(platform* platform, const char* title, int2 initial_size)
 {
     SDL_Window* sdl_window;
     SDL_GLContext sdl_gl_context;
@@ -27,18 +30,18 @@ void platform_init(vx::platform* platform, const char* title, int2 initial_size)
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 
     if (!sdl_window)
-        vx::fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
+        fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
 
     sdl_gl_context = SDL_GL_CreateContext(sdl_window);
 
     if (gl3wInit() == -1)
-        vx::fatal("gl3wInit failed");
+        fatal("gl3wInit failed");
 
-    platform->window = (vx::window*)sdl_window;
-    platform->gpu = (vx::gpu_device*)sdl_gl_context;
+    platform->window = (native_window*)sdl_window;
+    platform->gpu = (gpu_device*)sdl_gl_context;
 }
 
-void platform_quit(vx::platform* platform)
+void platform_quit(platform* platform)
 {
     SDL_Window* sdl_window;
     SDL_GLContext sdl_gl_context;
@@ -51,28 +54,28 @@ void platform_quit(vx::platform* platform)
     SDL_Quit();
 }
 
-void platform_swap_buffers(vx::platform* platform)
+void platform_swap_buffers(platform* platform)
 {
     SDL_Window* sdl_window;
     sdl_window = (SDL_Window*)platform->window;
     SDL_GL_SwapWindow(sdl_window);
 }
 
-vx::gpu_channel* gpu_channel_open(vx::gpu_device* gpu)
+gpu_channel* gpu_channel_open(gpu_device* gpu)
 {
     // TODO(vinht): Allocate.
     (void)gpu;
     return nullptr;
 }
 
-void gpu_channel_close(vx::gpu_device* gpu, vx::gpu_channel* channel)
+void gpu_channel_close(gpu_device* gpu, gpu_channel* channel)
 {
     // TODO(vinht): Execute.
     (void)gpu;
     (void)channel;
 }
 
-void gpu_channel_clear_cmd(vx::gpu_channel* channel, vx::gpu_clear_cmd_args* args)
+void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args)
 {
     // TODO(vinht): Record.
     (void)channel;

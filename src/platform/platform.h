@@ -4,23 +4,23 @@
 
 namespace vx
 {
-struct window;
+struct native_window;
 struct gpu_device;
 
 struct platform
 {
-    vx::window* window;
-    vx::gpu_device* gpu;
+    native_window* window;
+    gpu_device* gpu;
 };
 
-void platform_init(vx::platform* platform, const char* title, int2 initial_size);
-void platform_quit(vx::platform* platform);
-void platform_swap_buffers(vx::platform* platform);
+void platform_init(platform* platform, const char* title, int2 initial_size);
+void platform_quit(platform* platform);
+void platform_swap_buffers(platform* platform);
 
 struct gpu_channel;
 
-vx::gpu_channel* gpu_channel_open(vx::gpu_device* gpu);
-void gpu_channel_close(vx::gpu_device* gpu, vx::gpu_channel* channel);
+gpu_channel* gpu_channel_open(gpu_device* gpu);
+void gpu_channel_close(gpu_device* gpu, gpu_channel* channel);
 
 struct gpu_clear_cmd_args
 {
@@ -29,5 +29,5 @@ struct gpu_clear_cmd_args
     u8 stencil;
 };
 
-void gpu_channel_clear_cmd(vx::gpu_channel* channel, vx::gpu_clear_cmd_args* args);
+void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args);
 }

@@ -14,7 +14,7 @@ struct app
 {
     bool running = true;
 
-    vx::platform platform;
+    platform platform;
 
     struct
     {
