@@ -34,3 +34,6 @@
 # Directories
 bin/
 build/
+
+# Voxed-specific
+imgui.ini

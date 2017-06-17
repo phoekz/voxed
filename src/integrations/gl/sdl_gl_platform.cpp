@@ -54,7 +54,9 @@ void platform_quit(platform* platform)
     SDL_Quit();
 }
 
-void platform_swap_buffers(platform* platform)
+void platform_frame_begin(platform* /*platform*/) {}
+
+void platform_frame_end(platform* platform)
 {
     SDL_Window* sdl_window;
     sdl_window = (SDL_Window*)platform->window;

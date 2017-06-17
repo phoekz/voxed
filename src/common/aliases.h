@@ -18,6 +18,7 @@ using i32 = std::int32_t;
 using i64 = std::int64_t;
 
 using usize = std::size_t;
+using iptr = std::intptr_t;
 using uptr = std::uintptr_t;
 
 using float2 = glm::vec2;

@@ -4,7 +4,6 @@
 #include "common/mouse.h"
 #include "platform/gpu.h"
 
-#include "imgui.h"
 #include "integrations/imgui/imgui_sdl.h"
 #include "glm.hpp"
 #include "gtc/matrix_transform.hpp"
@@ -19,7 +18,6 @@
 #undef near
 #undef far
 
-#define vx_countof(arr) (sizeof(arr) / sizeof(arr[0]))
 #define VX_GRID_SIZE 16
 
 namespace vx
@@ -40,7 +38,7 @@ struct app
 
     struct
     {
-        int2 size = int2(1600, 1200);
+        int2 size = int2(1280, 720);
         const char* title = "voxed";
     } window;
 
@@ -363,7 +361,7 @@ int main(int /*argc*/, char** /*argv*/)
 
     vx::platform_init(&app.platform, app.window.title, app.window.size);
 
-    if (!vx::imgui_init(app.platform.window))
+    if (!vx::imgui_init(&app.platform))
         vx::fatal("ImGui initialization failed");
 
     if (!vx::voxel_app_initialize(voxel_app))
@@ -412,24 +410,28 @@ int main(int /*argc*/, char** /*argv*/)
             vx::voxel_app_update(app, voxel_app);
 
             ImGui::Begin("Hello, ImGui");
+            static float greatness;
+            ImGui::SliderFloat("Greatness", &greatness, 0.0f, 1.0f);
+            if (ImGui::Button("Yay!"))
+                printf("%f\n", greatness);
             ImGui::End();
         }
 
         // rendering
+
+        vx::platform_frame_begin(&app.platform);
 
         {
             vx::gpu_device* gpu = app.platform.gpu;
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
             vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 0.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
-            vx::gpu_channel_close(gpu, channel);
-
+            vx::imgui_render(&app.platform, channel);
             vx::voxel_app_render(app, voxel_app);
-
-            ImGui::Render();
+            vx::gpu_channel_close(gpu, channel);
         }
 
-        vx::platform_swap_buffers(&app.platform);
+        vx::platform_frame_end(&app.platform);
     }
 
     //
