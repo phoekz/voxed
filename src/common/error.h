@@ -6,7 +6,7 @@
 
 namespace vx
 {
-static void fatal(const char* fmt, ...)
+inline void fatal(const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
