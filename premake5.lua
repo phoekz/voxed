@@ -45,13 +45,10 @@ project (project_name)
     warnings ("Extra")
 
     files {
-        "src/**.cpp",
-        "src/**.h",
-    }
-    removefiles {
-        -- exclude rendering backends by default and
-        -- add them back in later per platform
-        "src/platform/*/**"
+        "src/integrations/imgui/**",
+        "src/platform/**",
+        "src/common/**.h",
+        "src/main.cpp"
     }
 
     includedirs {
@@ -68,8 +65,7 @@ project (project_name)
 
     filter "system:macosx"
         files {
-            "src/platform/mtl/**.mm",
-            "src/platform/mtl/**.h",
+            "src/integrations/mtl/**.mm",
         }
         includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
         links { "Cocoa.framework" }
@@ -77,8 +73,7 @@ project (project_name)
 
     filter "system:windows"
         files {
-            "src/platform/gl/**.cpp",
-            "src/platform/gl/**.h",
+            "src/integrations/gl/**",
         }
         includedirs { path.join(ext_dir, "SDL-2.0.4/include") }
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
