@@ -1,4 +1,4 @@
-#include "platform/platform.h"
+#include "platform/gpu.h"
 #include "common/error.h"
 
 #include "SDL.h"

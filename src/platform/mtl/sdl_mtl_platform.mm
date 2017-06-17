@@ -1,4 +1,4 @@
-#include "common/platform.h"
+#include "platform/gpu.h"
 
 namespace vx
 {

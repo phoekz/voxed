@@ -1,22 +1,9 @@
 #pragma once
 
-#include "common/aliases.h"
+#include "platform/native_platform.h"
 
 namespace vx
 {
-struct native_window;
-struct gpu_device;
-
-struct platform
-{
-    native_window* window;
-    gpu_device* gpu;
-};
-
-void platform_init(platform* platform, const char* title, int2 initial_size);
-void platform_quit(platform* platform);
-void platform_swap_buffers(platform* platform);
-
 struct gpu_channel;
 
 gpu_channel* gpu_channel_open(gpu_device* gpu);

@@ -1,8 +1,5 @@
-#include "common/aliases.h"
-#include "common/platform.h"
-#include "platform/platform.h"
+#include "platform/gpu.h"
 
-#include "SDL.h"
 #include "imgui.h"
 #include "glm.hpp"
 
