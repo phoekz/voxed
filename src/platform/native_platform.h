@@ -7,12 +7,11 @@
 
 namespace vx
 {
-struct native_window;
 struct gpu_device;
 
 struct platform
 {
-    native_window* window;
+    SDL_Window* window;
     gpu_device* gpu;
 };
 

@@ -1,6 +1,8 @@
 #include "platform/gpu.h"
+#include "common/error.h"
 
 #include "imgui.h"
+#include "integrations/imgui/imgui_sdl.h"
 #include "glm.hpp"
 
 #define vx_countof(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -42,6 +44,9 @@ int main(int /*argc*/, char** /*argv*/)
 
     vx::platform_init(&app.platform, app.window.title, app.window.size);
 
+    if (!vx::imgui_init(app.platform.window))
+        vx::fatal("ImGui initialization failed");
+
     //
     // main loop
     //
@@ -70,7 +75,18 @@ int main(int /*argc*/, char** /*argv*/)
                     case SDL_QUIT:
                         app.running = false;
                 }
+
+                vx::imgui_process_event(&ev);
             }
+        }
+
+        // gui updates
+
+        {
+            vx::imgui_new_frame(app.platform.window);
+
+            ImGui::Begin("Hello, ImGui");
+            ImGui::End();
         }
 
         // rendering
@@ -81,6 +97,8 @@ int main(int /*argc*/, char** /*argv*/)
             vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 0.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
             vx::gpu_channel_close(gpu, channel);
+
+            ImGui::Render();
         }
 
         vx::platform_swap_buffers(&app.platform);
@@ -90,6 +108,7 @@ int main(int /*argc*/, char** /*argv*/)
     // teardown
     //
 
+    vx::imgui_shutdown();
     vx::platform_quit(&app.platform);
 
     return 0;

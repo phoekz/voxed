@@ -37,7 +37,7 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     if (gl3wInit() == -1)
         fatal("gl3wInit failed");
 
-    platform->window = (native_window*)sdl_window;
+    platform->window = sdl_window;
     platform->gpu = (gpu_device*)sdl_gl_context;
 }
 
