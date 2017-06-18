@@ -20,12 +20,14 @@ BraceWrapping: {
 }
 BreakBeforeBraces: Custom
 ColumnLimit: 100
+Cpp11BracedListStyle: 'true'
 DerivePointerAlignment: 'false'
 IndentCaseLabels: 'true'
 IndentWidth: 4
 Language: Cpp
 PenaltyExcessCharacter: 100000000
 PenaltyReturnTypeOnItsOwnLine: 100000000
+PointerAlignment: Left
 PointerBindsToType: 'true'
 SortIncludes: 'false'
 SpaceAfterTemplateKeyword: 'false'
