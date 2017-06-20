@@ -47,8 +47,8 @@ project (project_name)
     files {
         "src/integrations/imgui/**",
         "src/platform/**",
-        "src/common/**.h",
-        "src/main.cpp"
+        "src/common/**",
+        "src/main.cpp",
     }
 
     includedirs {
