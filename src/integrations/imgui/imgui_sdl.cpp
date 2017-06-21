@@ -126,10 +126,10 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
                 // TODO(vinht): Bind draw_cmd->TextureId.
 
                 vx::u32 sx0, sy0, sx1, sy1;
-                sx0 = draw_cmd->ClipRect.x;
-                sy0 = draw_cmd->ClipRect.y;
-                sx1 = draw_cmd->ClipRect.z;
-                sy1 = draw_cmd->ClipRect.w;
+                sx0 = (vx::u32)draw_cmd->ClipRect.x;
+                sy0 = (vx::u32)draw_cmd->ClipRect.y;
+                sx1 = (vx::u32)draw_cmd->ClipRect.z;
+                sy1 = (vx::u32)draw_cmd->ClipRect.w;
                 vx::gpu_scissor_rect scissor_rect{sx0, sy0, sx1 - sx0, sy1 - sy0};
                 vx::gpu_channel_set_scissor_cmd(channel, &scissor_rect);
 
@@ -265,7 +265,7 @@ bool imgui_init(platform* platform)
         attributes[2].offset = pos_size + uv_size;
 
         imgui_ctx.vertex_desc = gpu_vertex_desc_create(
-            gpu, attributes, vx_countof(attributes), pos_size + uv_size + col_size);
+            gpu, attributes, vx_countof(attributes), (vx::u32)(pos_size + uv_size + col_size));
     }
 
     //
