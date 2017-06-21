@@ -62,23 +62,24 @@ struct app
 
 const char* vertex_shader =
     "#version 420 core\n"
-    ""
+
     "uniform mat4 cameraMatrix;\n"
-    ""
+    "uniform mat4 modelMatrix;\n"
+
     "layout(location = 0) in vec3 aVertex;\n"
 
     "void main()\n"
     "{\n"
-    "    gl_Position = cameraMatrix* vec4(aVertex, 1.0);\n"
+    "    gl_Position = cameraMatrix * modelMatrix * vec4(aVertex, 1.0);\n"
     "}\n";
 
 const char* fragment_shader =
     "#version 420 core\n"
-    ""
+
     "uniform vec3 color;\n"
-    ""
+
     "out vec4 fragColor;\n"
-    ""
+
     "void main()\n"
     "{\n"
     "    fragColor = vec4(color, 1.0);\n"
@@ -107,7 +108,7 @@ struct voxel_app
     orbit_camera camera{};
 };
 
-void on_dolly(orbit_camera& camera, float dz, float dt)
+void on_camera_dolly(orbit_camera& camera, float dz, float dt)
 {
     const float scale = 2.f;
     // the delta radius is scaled here by the radius itself, so that the scaling acts faster
@@ -116,10 +117,10 @@ void on_dolly(orbit_camera& camera, float dz, float dt)
     camera.radius = clamp(camera.radius, camera.min_radius, camera.max_radius);
 }
 
-void on_orbit(orbit_camera& camera, float dx, float dy, float dt)
+void on_camera_orbit(orbit_camera& camera, float dx, float dy, float dt)
 {
     const float scale = 4.f;
-    camera.polar -= dt * scale * degrees_to_radians(dy);
+    camera.polar += dt * scale * degrees_to_radians(dy);
     camera.azimuth -= dt * scale * degrees_to_radians(dx);
     camera.polar = clamp(camera.polar, -float(0.499 * M_PI), float(0.499 * M_PI));
 }
@@ -148,10 +149,10 @@ inline float3 up(const orbit_camera& camera) { return glm::cross(right(camera), 
 
 inline float3 eye(const orbit_camera& camera)
 {
-    return camera.focal_point + camera.radius * forward(camera);
+    return camera.focal_point - camera.radius * forward(camera);
 }
 
-bool raycast_cube(const app& app, const orbit_camera& camera, const bounds3f& box)
+ray generate_camera_ray(const app& app, const orbit_camera& camera)
 {
     ray ray;
     ray.origin = eye(camera);
@@ -163,12 +164,13 @@ bool raycast_cube(const app& app, const orbit_camera& camera, const bounds3f& bo
     const float nx = 2.f * (float(coordinates.x) / w - .5f);
     const float ny = -2.f * (float(coordinates.y) / h - .5f);
 
+    float vertical_extent = std::tan(0.5f * camera.fovy) * camera.near;
     ray.direction = forward(camera) * camera.near;
-    ray.direction += aspect * nx * std::tan(0.5f * camera.fovy) * camera.near * right(camera);
-    ray.direction += ny * std::tan(0.5f * camera.fovy) * camera.near * up(camera);
+    ray.direction += aspect * nx * vertical_extent * right(camera);
+    ray.direction += ny * vertical_extent * up(camera);
     ray.direction = glm::normalize(ray.direction);
 
-    return ray_intersects_aabb(ray, box);
+    return ray;
 }
 
 bool initialize_voxel_app(voxel_app& vox_app)
@@ -286,33 +288,37 @@ void update_voxel_app(const app& app, voxel_app& voxel_app)
     if (mouse_button_pressed(button::left))
     {
         auto delta = mouse_delta();
-        on_orbit(voxel_app.camera, float(delta.x), float(delta.y), app.time.delta);
+        on_camera_orbit(voxel_app.camera, float(delta.x), float(delta.y), app.time.delta);
     }
 
     if (scroll_wheel_moved())
     {
-        on_dolly(voxel_app.camera, float(-scroll_delta()), app.time.delta);
+        on_camera_dolly(voxel_app.camera, float(-scroll_delta()), app.time.delta);
     }
+}
 
-    if (raycast_cube(
-            app, voxel_app.camera, bounds3f{float3{-1.f, -1.f, -1.f}, float3{1.f, 1.f, 1.f}}))
-    {
-        std::cout << "Hit!" << std::endl;
-    }
-    else
-    {
-        std::cout << "Miss!" << std::endl;
-    }
+void render_cube(
+    const app& app,
+    const voxel_app& vox_app,
+    const float3& color,
+    const float4x4& model_matrix)
+{
+    glUniform3f(glGetUniformLocation(vox_app.shader, "color"), color.r, color.g, color.b);
+
+    glUniformMatrix4fv(
+        glGetUniformLocation(vox_app.shader, "modelMatrix"),
+        1,
+        GL_FALSE,
+        (const GLfloat*)&model_matrix);
+
+    glBindVertexArray(vox_app.cube_array);
+    glDrawArrays(GL_LINES, 0, 24);
+    glBindVertexArray(0);
 }
 
 void render_voxel_app(const app& app, const voxel_app& vox_app)
 {
     glUseProgram(vox_app.shader);
-    glUniform3f(
-        glGetUniformLocation(vox_app.shader, "color"),
-        vox_app.cube_color.r,
-        vox_app.cube_color.g,
-        vox_app.cube_color.b);
 
     int w, h;
     SDL_GetWindowSize(app.platform.window, &w, &h);
@@ -328,9 +334,17 @@ void render_voxel_app(const app& app, const voxel_app& vox_app)
         GL_FALSE,
         (const GLfloat*)&camera_mat);
 
-    glBindVertexArray(vox_app.cube_array);
-    glDrawArrays(GL_LINES, 0, 24);
-    glBindVertexArray(0);
+    render_cube(app, vox_app, vox_app.cube_color, float4x4{});
+
+    ray ray = generate_camera_ray(app, vox_app.camera);
+    if (ray_intersects_aabb(ray, bounds3f{float3{-1.f, -1.f, -1.f}, float3{1.f, 1.f, 1.f}}))
+    {
+        float4x4 model_matrix = glm::translate(float4x4(1.f), ray.origin + ray.direction * ray.t) *
+                                glm::scale(float4x4(1.f), float3(0.1f));
+        render_cube(app, vox_app, float3(1.f, 0.2f, 0.2f), model_matrix);
+    }
+
+    glUseProgram(0);
 }
 
 void shutdown_voxel_app(voxel_app& vox_app)
@@ -349,7 +363,6 @@ int main(int /*argc*/, char** /*argv*/)
     //
 
     vx::app app;
-    vx::orbit_camera camera;
     vx::voxel_app voxel_app;
 
     vx::platform_init(&app.platform, app.window.title, app.window.size);
