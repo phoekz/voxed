@@ -38,7 +38,7 @@ struct app
 
     struct
     {
-        int2 size = int2(1280, 720);
+        int2 size = int2(1600, 1200);
         const char* title = "voxed";
     } window;
 
