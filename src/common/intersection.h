@@ -9,9 +9,9 @@
 
 namespace vx
 {
-static bool ray_intersects_aabb(ray& r, const bounds3f& b)
+static bool ray_intersects_aabb(const ray& r, const bounds3f& b, float* out_t)
 {
-    r.t = std::numeric_limits<float>::max();
+    float t = std::numeric_limits<float>::max();
 
     float inv_dx = 1.f / r.direction.x;
     float tmin = (b.min.x - r.origin.x) * inv_dx;
@@ -49,7 +49,8 @@ static bool ray_intersects_aabb(ray& r, const bounds3f& b)
     if (tzmin > tmin)
         tmin = tzmin;
 
-    r.t = tmin;
+    if (out_t)
+        *out_t = tmin;
 
     return true;
 }
