@@ -13,46 +13,45 @@ struct gpu_shader;
 struct gpu_pipeline;
 struct gpu_channel;
 
-enum gpu_vertex_format
+enum class gpu_vertex_format
 {
-    gpu_vertex_format_float,
-    gpu_vertex_format_float2,
-    gpu_vertex_format_float3,
-    gpu_vertex_format_float4,
-
-    gpu_vertex_format_rgba8_unorm,
+    float1,
+    float2,
+    float3,
+    float4,
+    rgba8_unorm,
 };
 
-enum gpu_index_type
+enum class gpu_index_type
 {
-    gpu_index_type_u16,
-    gpu_index_type_u32,
+    u16,
+    u32,
 };
 
-enum gpu_pixel_format
+enum class gpu_pixel_format
 {
-    gpu_pixel_format_rgba8_unorm,
+    rgba8_unorm,
 };
 
-enum gpu_filter_mode
+enum class gpu_filter_mode
 {
-    gpu_filter_mode_nearest,
-    gpu_filter_mode_linear,
+    nearest,
+    linear,
 };
 
-enum gpu_shader_type
+enum class gpu_shader_type
 {
-    gpu_shader_type_vertex,
-    gpu_shader_type_fragment,
+    vertex,
+    fragment,
 };
 
-enum gpu_primitive_type
+enum class gpu_primitive_type
 {
-    gpu_primitive_type_point,
-    gpu_primitive_type_line,
-    gpu_primitive_type_line_strip,
-    gpu_primitive_type_triangle,
-    gpu_primitive_type_triangle_strip,
+    point,
+    line,
+    line_strip,
+    triangle,
+    triangle_strip,
 };
 
 struct gpu_scissor_rect

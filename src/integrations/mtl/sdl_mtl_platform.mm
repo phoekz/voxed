@@ -210,7 +210,7 @@ gpu_texture* gpu_texture_create(
 
     switch (format)
     {
-        case gpu_pixel_format_rgba8_unorm:
+        case gpu_pixel_format::rgba8_unorm:
             pixel_format = MTLPixelFormatRGBA8Unorm;
             break;
         default:
@@ -263,14 +263,14 @@ gpu_sampler* gpu_sampler_create(
 
     mtl = (mtl_device*)gpu;
 
-    mtl_min = (min == gpu_filter_mode_nearest) ? MTLSamplerMinMagFilterNearest
-                                               : MTLSamplerMinMagFilterLinear;
+    mtl_min = (min == gpu_filter_mode::nearest) ? MTLSamplerMinMagFilterNearest
+                                                : MTLSamplerMinMagFilterLinear;
 
-    mtl_mag = (mag == gpu_filter_mode_nearest) ? MTLSamplerMinMagFilterNearest
-                                               : MTLSamplerMinMagFilterLinear;
+    mtl_mag = (mag == gpu_filter_mode::nearest) ? MTLSamplerMinMagFilterNearest
+                                                : MTLSamplerMinMagFilterLinear;
 
     mtl_mip =
-        (mip == gpu_filter_mode_nearest) ? MTLSamplerMipFilterNearest : MTLSamplerMipFilterLinear;
+        (mip == gpu_filter_mode::nearest) ? MTLSamplerMipFilterNearest : MTLSamplerMipFilterLinear;
 
     s_address = MTLSamplerAddressModeClampToEdge;
     t_address = MTLSamplerAddressModeClampToEdge;
@@ -314,19 +314,19 @@ gpu_vertex_desc* gpu_vertex_desc_create(
     {
         switch (attributes[i].format)
         {
-            case gpu_vertex_format_float:
+            case gpu_vertex_format::float1:
                 vertex_desc.attributes[i].format = MTLVertexFormatFloat;
                 break;
-            case gpu_vertex_format_float2:
+            case gpu_vertex_format::float2:
                 vertex_desc.attributes[i].format = MTLVertexFormatFloat2;
                 break;
-            case gpu_vertex_format_float3:
+            case gpu_vertex_format::float3:
                 vertex_desc.attributes[i].format = MTLVertexFormatFloat3;
                 break;
-            case gpu_vertex_format_float4:
+            case gpu_vertex_format::float4:
                 vertex_desc.attributes[i].format = MTLVertexFormatFloat4;
                 break;
-            case gpu_vertex_format_rgba8_unorm:
+            case gpu_vertex_format::rgba8_unorm:
                 vertex_desc.attributes[i].format = MTLVertexFormatUChar4Normalized;
                 break;
             default:
@@ -489,15 +489,15 @@ static MTLPrimitiveType gpu_convert_enum(gpu_primitive_type primitive_type)
 {
     switch (primitive_type)
     {
-        case gpu_primitive_type_point:
+        case gpu_primitive_type::point:
             return MTLPrimitiveTypePoint;
-        case gpu_primitive_type_line:
+        case gpu_primitive_type::line:
             return MTLPrimitiveTypeLine;
-        case gpu_primitive_type_line_strip:
+        case gpu_primitive_type::line_strip:
             return MTLPrimitiveTypeLineStrip;
-        case gpu_primitive_type_triangle:
+        case gpu_primitive_type::triangle:
             return MTLPrimitiveTypeTriangle;
-        case gpu_primitive_type_triangle_strip:
+        case gpu_primitive_type::triangle_strip:
             return MTLPrimitiveTypeTriangleStrip;
         default:
             fatal("Invalid primitive type: %d", primitive_type);
@@ -508,9 +508,9 @@ static MTLIndexType gpu_convert_enum(gpu_index_type index_type)
 {
     switch (index_type)
     {
-        case gpu_index_type_u16:
+        case gpu_index_type::u16:
             return MTLIndexTypeUInt16;
-        case gpu_index_type_u32:
+        case gpu_index_type::u32:
             return MTLIndexTypeUInt32;
         default:
             fatal("Invalid index type: %d", index_type);
