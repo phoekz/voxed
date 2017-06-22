@@ -11,16 +11,30 @@ struct mouse_state
     int2 delta_coordinates{0, 0};
     i32 scroll_delta{0};
 
-    u32 button_state{0u};
-    u32 button_down_events{0u};
-    u32 button_up_events{0u};
+    i32 button_state{0u};
+    i32 button_down_events{0u};
+    i32 button_up_events{0u};
 
     bool mouse_moved{false};
     bool scroll_moved{false};
 };
 
-mouse_state state{};
+mouse_state state;
 }
+
+/*
+* These enumerations correspond to SDL_BUTTON_* values,
+* defined in http://hg.libsdl.org/SDL/file/default/include/SDL_mouse.h
+*/
+static_assert(
+    int(button::left) == SDL_BUTTON_LEFT,
+    "button::left not equal to SDL_BUTTON_LEFT");
+static_assert(
+    int(button::middle) == SDL_BUTTON_MIDDLE,
+    "button::middle not equal to SDL_BUTTON_MIDDLE");
+static_assert(
+    int(button::right) == SDL_BUTTON_RIGHT,
+    "Button::right not equal to SDL_BUTTON_RIGHT");
 
 int2 mouse_coordinates() { return state.current_coordinates; }
 
@@ -30,12 +44,12 @@ i32 scroll_delta() { return state.scroll_delta; }
 
 bool mouse_button_down(button b)
 {
-    return state.button_down_events & SDL_BUTTON(static_cast<int>(b));
+    return (state.button_down_events & SDL_BUTTON(static_cast<int>(b))) != 0;
 }
 
-bool mouse_button_up(button b) { return state.button_up_events & SDL_BUTTON(static_cast<int>(b)); }
+bool mouse_button_up(button b) { return (state.button_up_events & SDL_BUTTON(static_cast<int>(b))) != 0; }
 
-bool mouse_button_pressed(button b) { return state.button_state & SDL_BUTTON(static_cast<int>(b)); }
+bool mouse_button_pressed(button b) { return (state.button_state & SDL_BUTTON(static_cast<int>(b))) != 0; }
 
 bool scroll_wheel_moved() { return state.scroll_moved; }
 
@@ -55,17 +69,6 @@ void mouse_update()
 
 void mouse_handle_event(const SDL_Event& event)
 {
-    static_assert(
-        static_cast<int>(button::left) == SDL_BUTTON_LEFT,
-        "button::left not equal to SDL_BUTTON_LEFT");
-    static_assert(
-        static_cast<int>(button::middle) == SDL_BUTTON_MIDDLE,
-        "button::middle not equal to SDL_BUTTON_MIDDLE");
-    static_assert(
-        static_cast<int>(button::right) == SDL_BUTTON_RIGHT,
-        "Button::right not equal to SDL_BUTTON_RIGHT");
-
-    SDL_BUTTON(SDL_BUTTON_LEFT);
     switch (event.type)
     {
         case SDL_MOUSEBUTTONDOWN:

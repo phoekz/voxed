@@ -30,8 +30,8 @@ struct bounds
 {
     using value_type = typename VecType::value_type;
 
-    VecType min{};
-    VecType max{};
+    VecType min;
+    VecType max;
 };
 
 template<typename VecType>
