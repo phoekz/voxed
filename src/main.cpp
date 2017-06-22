@@ -20,8 +20,6 @@
 #undef near
 #undef far
 
-#define VX_GRID_SIZE 16
-
 namespace vx
 {
 namespace
@@ -40,7 +38,7 @@ struct app
 
     struct
     {
-        int2 size = int2(1600, 1200);
+        int2 size = int2(640, 640);
         const char* title = "voxed";
     } window;
 
@@ -73,20 +71,24 @@ struct orbit_camera
     const float min_radius{1.5f}, max_radius{10.f};
 };
 
+#define VX_GRID_SIZE 16
+
 struct voxel_app
 {
     GLuint cube_buffer{0u};
     GLuint cube_array{0u};
     GLuint shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
+    float3 selection_color{1.f, 0.2f, 0.2f};
     float4x4 camera_view{};
     orbit_camera camera{};
     bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
+    u8 voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
 };
 
 void on_camera_dolly(orbit_camera& camera, float dz, float dt)
 {
-    const float scale = 2.f;
+    const float scale = 8.f;
     // the delta radius is scaled here by the radius itself, so that the scaling acts faster
     // the further away the camera is
     camera.radius -= dt * scale * dz * camera.radius;
@@ -95,7 +97,7 @@ void on_camera_dolly(orbit_camera& camera, float dz, float dt)
 
 void on_camera_orbit(orbit_camera& camera, float dx, float dy, float dt)
 {
-    const float scale = 4.f;
+    const float scale = 16.f;
     camera.polar += dt * scale * degrees_to_radians(dy);
     camera.azimuth -= dt * scale * degrees_to_radians(dx);
     camera.polar = clamp(camera.polar, -float(0.499 * M_PI), float(0.499 * M_PI));
@@ -204,6 +206,16 @@ GLuint compile_gl_shader_from_file(const char* file_path)
 bool voxel_app_initialize(voxel_app& vox_app)
 {
     vox_app.shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
+    memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
+
+    for (int z = 0; z < VX_GRID_SIZE; z++)
+        for (int y = 0; y < VX_GRID_SIZE; y++)
+            for (int x = 0; x < VX_GRID_SIZE; x++)
+                if (rand() % 24 == 0)
+                {
+                    int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    vox_app.voxel_grid[i] = 1;
+                }
 
     glGenVertexArrays(1, &vox_app.cube_array);
     glBindVertexArray(vox_app.cube_array);
@@ -305,15 +317,58 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
 
     glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
 
-    render_cube(vox_app, vox_app.cube_color, float4x4{});
+    float3 scene_extents = extents(vox_app.scene_bounds);
+    float3 voxel_extents = scene_extents / (float)VX_GRID_SIZE;
+
+    for (int z = 0; z < VX_GRID_SIZE; z++)
+        for (int y = 0; y < VX_GRID_SIZE; y++)
+            for (int x = 0; x < VX_GRID_SIZE; x++)
+            {
+                int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                if (vox_app.voxel_grid[i])
+                {
+                    float3 voxel_coords{x, y, z};
+                    bounds3f voxel_bounds;
+                    voxel_bounds.min = vox_app.scene_bounds.min + voxel_coords * voxel_extents;
+                    voxel_bounds.max = voxel_bounds.min + voxel_extents;
+
+                    float4x4 model = glm::translate(float4x4{1.f}, center(voxel_bounds)) *
+                                     glm::scale(float4x4{1.f}, 0.5f * voxel_extents);
+
+                    float3 voxel_color = voxel_coords / (float)VX_GRID_SIZE;
+                    render_cube(vox_app, voxel_color, model);
+                }
+            }
 
     ray ray = generate_camera_ray(app, vox_app.camera);
-    if (ray_intersects_aabb(ray, vox_app.scene_bounds))
+    float closest_t = INFINITY;
+
+    for (int z = 0; z < VX_GRID_SIZE; z++)
+        for (int y = 0; y < VX_GRID_SIZE; y++)
+            for (int x = 0; x < VX_GRID_SIZE; x++)
+            {
+                int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                if (vox_app.voxel_grid[i])
+                {
+                    float3 voxel_coords{x, y, z};
+                    bounds3f voxel_bounds;
+                    voxel_bounds.min = vox_app.scene_bounds.min + voxel_coords * voxel_extents;
+                    voxel_bounds.max = voxel_bounds.min + voxel_extents;
+
+                    if (ray_intersects_aabb(ray, voxel_bounds) && ray.t < closest_t)
+                        closest_t = ray.t;
+                }
+            }
+
+    if (closest_t < INFINITY)
     {
-        float4x4 model_matrix = glm::translate(float4x4(1.f), ray.origin + ray.direction * ray.t) *
-                                glm::scale(float4x4(1.f), float3(0.1f));
-        render_cube(vox_app, float3(1.f, 0.2f, 0.2f), model_matrix);
+        float4x4 model_matrix =
+            glm::translate(float4x4{1.f}, ray.origin + ray.direction * closest_t) *
+            glm::scale(float4x4{1.f}, float3{0.025f});
+        render_cube(vox_app, vox_app.selection_color, model_matrix);
     }
+
+    render_cube(vox_app, vox_app.cube_color, float4x4{});
 
     glUseProgram(0);
 }
