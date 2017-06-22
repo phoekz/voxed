@@ -2,6 +2,7 @@
 #include "common/geometry.h"
 #include "common/intersection.h"
 #include "common/mouse.h"
+#include "common/macros.h"
 #include "platform/gpu.h"
 
 #include "integrations/imgui/imgui_sdl.h"
@@ -361,8 +362,8 @@ int main(int /*argc*/, char** /*argv*/)
 
     vx::platform_init(&app.platform, app.window.title, app.window.size);
 
-    if (!vx::imgui_init(&app.platform))
-        vx::fatal("ImGui initialization failed");
+    // if (!vx::imgui_init(&app.platform))
+    //    vx::fatal("ImGui initialization failed");
 
     if (!vx::voxel_app_initialize(voxel_app))
         vx::fatal("Voxel app initialization failed");
@@ -403,18 +404,22 @@ int main(int /*argc*/, char** /*argv*/)
             }
         }
 
-        // gui updates
+        // app
 
         {
-            vx::imgui_new_frame(app.platform.window);
             vx::voxel_app_update(app, voxel_app);
+        }
 
-            ImGui::Begin("Hello, ImGui");
-            static float greatness;
-            ImGui::SliderFloat("Greatness", &greatness, 0.0f, 1.0f);
-            if (ImGui::Button("Yay!"))
-                printf("%f\n", greatness);
-            ImGui::End();
+        // gui
+
+        {
+            // vx::imgui_new_frame(app.platform.window);
+            // ImGui::Begin("Hello, ImGui");
+            // static float greatness;
+            // ImGui::SliderFloat("Greatness", &greatness, 0.0f, 1.0f);
+            // if (ImGui::Button("Yay!"))
+            //    printf("%f\n", greatness);
+            // ImGui::End();
         }
 
         // rendering
@@ -426,7 +431,7 @@ int main(int /*argc*/, char** /*argv*/)
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
             vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 0.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
-            vx::imgui_render(&app.platform, channel);
+            // vx::imgui_render(&app.platform, channel);
             vx::voxel_app_render(app, voxel_app);
             vx::gpu_channel_close(gpu, channel);
         }
@@ -439,7 +444,7 @@ int main(int /*argc*/, char** /*argv*/)
     //
 
     vx::voxel_app_shutdown(&voxel_app);
-    vx::imgui_shutdown();
+    // vx::imgui_shutdown();
     vx::platform_quit(&app.platform);
 
     return 0;
