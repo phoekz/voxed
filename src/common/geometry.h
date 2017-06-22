@@ -9,7 +9,6 @@ struct ray
 {
     float3 origin;
     float3 direction;
-    float t;
 };
 
 struct plane

@@ -355,8 +355,9 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
                     voxel_bounds.min = vox_app.scene_bounds.min + voxel_coords * voxel_extents;
                     voxel_bounds.max = voxel_bounds.min + voxel_extents;
 
-                    if (ray_intersects_aabb(ray, voxel_bounds) && ray.t < closest_t)
-                        closest_t = ray.t;
+                    float hit_t;
+                    if (ray_intersects_aabb(ray, voxel_bounds, &hit_t) && hit_t < closest_t)
+                        closest_t = hit_t;
                 }
             }
 
