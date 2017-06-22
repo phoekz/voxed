@@ -4,6 +4,7 @@
 #include "common/mouse.h"
 #include "common/macros.h"
 #include "platform/gpu.h"
+#include "platform/filesystem.h"
 
 #include "integrations/imgui/imgui_sdl.h"
 #include "glm.hpp"
@@ -58,31 +59,6 @@ struct app
 //
 // prototype app
 //
-
-const char* vertex_shader =
-    "#version 420 core\n"
-
-    "uniform mat4 cameraMatrix;\n"
-    "uniform mat4 modelMatrix;\n"
-
-    "layout(location = 0) in vec3 aVertex;\n"
-
-    "void main()\n"
-    "{\n"
-    "    gl_Position = cameraMatrix * modelMatrix * vec4(aVertex, 1.0);\n"
-    "}\n";
-
-const char* fragment_shader =
-    "#version 420 core\n"
-
-    "uniform vec3 color;\n"
-
-    "out vec4 fragColor;\n"
-
-    "void main()\n"
-    "{\n"
-    "    fragColor = vec4(color, 1.0);\n"
-    "}\n";
 
 struct orbit_camera
 {
@@ -172,64 +148,66 @@ ray generate_camera_ray(const app& app, const orbit_camera& camera)
     return ray;
 }
 
+GLuint compile_gl_shader_from_file(const char* file_path)
+{
+    GLint status;
+    char* shader_source = read_whole_file(file_path, nullptr);
+    GLuint vs_stage = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint program = glCreateProgram();
+    char* vs_defs[] = {
+        "#version 450 core\n", "#define VX_SHADER 0\n", shader_source,
+    };
+    char* fs_defs[] = {
+        "#version 450 core\n", "#define VX_SHADER 1\n", shader_source,
+    };
+
+    glShaderSource(vs_stage, vx_countof(vs_defs), vs_defs, 0);
+    glShaderSource(fs_stage, vx_countof(fs_defs), fs_defs, 0);
+
+    glCompileShader(vs_stage);
+    glCompileShader(fs_stage);
+
+    glGetShaderiv(vs_stage, GL_COMPILE_STATUS, &status);
+    if (!status)
+    {
+        char buf[2048];
+        glGetShaderInfoLog(vs_stage, sizeof(buf) - 1, 0, buf);
+        fatal("Vertex shader compilation failed (%s)\n%s\n", file_path, buf);
+    }
+
+    glGetShaderiv(fs_stage, GL_COMPILE_STATUS, &status);
+    if (!status)
+    {
+        char buf[2048];
+        glGetShaderInfoLog(fs_stage, sizeof(buf) - 1, 0, buf);
+        fatal("Fragment shader compilation failed (%s)\n%s\n", file_path, buf);
+    }
+
+    glAttachShader(program, vs_stage);
+    glAttachShader(program, fs_stage);
+    glLinkProgram(program);
+
+    glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if (!status)
+    {
+        char buf[2048];
+        glGetProgramInfoLog(program, sizeof(buf) - 1, 0, buf);
+        fatal("Program linking failed (%s)\n%s\n", file_path, buf);
+    }
+
+    free(shader_source);
+    return program;
+}
+
 bool voxel_app_initialize(voxel_app& vox_app)
 {
-    vox_app.shader = glCreateProgram();
-    if (vox_app.shader == 0u)
-    {
-        return false;
-    }
-
-    // vertex shader
-    {
-        GLuint vertex_stage = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vertex_stage, 1, &vertex_shader, 0);
-
-        glCompileShader(vertex_stage);
-
-        GLint status;
-        glGetShaderiv(vertex_stage, GL_COMPILE_STATUS, &status);
-        if (status == GL_FALSE)
-        {
-            return false;
-        }
-
-        glAttachShader(vox_app.shader, vertex_stage);
-        glDeleteShader(vertex_stage);
-    }
-    // fragment shader
-    {
-        GLuint fragment_stage = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fragment_stage, 1, &fragment_shader, 0);
-
-        glCompileShader(fragment_stage);
-
-        GLint status;
-        glGetShaderiv(fragment_stage, GL_COMPILE_STATUS, &status);
-        if (status == GL_FALSE)
-        {
-            return false;
-        }
-
-        glAttachShader(vox_app.shader, fragment_stage);
-        glDeleteShader(fragment_stage);
-    }
-    // link the program
-    {
-        glLinkProgram(vox_app.shader);
-        GLint status;
-        glGetProgramiv(vox_app.shader, GL_LINK_STATUS, &status);
-        if (status == GL_FALSE)
-        {
-            return false;
-        }
-    }
-
-    glGenBuffers(1, &vox_app.cube_buffer);
+    vox_app.shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
 
     glGenVertexArrays(1, &vox_app.cube_array);
     glBindVertexArray(vox_app.cube_array);
     {
+        glGenBuffers(1, &vox_app.cube_buffer);
         glBindBuffer(GL_ARRAY_BUFFER, vox_app.cube_buffer);
 
         // the min and max corners of the cube to render
@@ -298,13 +276,9 @@ void voxel_app_update(const app& app, voxel_app& voxel_app)
 
 void render_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
 {
-    glUniform3f(glGetUniformLocation(vox_app.shader, "color"), color.r, color.g, color.b);
+    glUniform3f(2, color.r, color.g, color.b);
 
-    glUniformMatrix4fv(
-        glGetUniformLocation(vox_app.shader, "modelMatrix"),
-        1,
-        GL_FALSE,
-        (const GLfloat*)&model_matrix);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
     glBindVertexArray(vox_app.cube_array);
     glDrawArrays(GL_LINES, 0, 24);
@@ -328,11 +302,7 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
             vox_app.camera.fovy, float(w) / h, vox_app.camera.near, vox_app.camera.far) *
         glm::lookAt(eye(vox_app.camera), vox_app.camera.focal_point, up(vox_app.camera));
 
-    glUniformMatrix4fv(
-        glGetUniformLocation(vox_app.shader, "cameraMatrix"),
-        1,
-        GL_FALSE,
-        (const GLfloat*)&camera_mat);
+    glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
 
     render_cube(vox_app, vox_app.cube_color, float4x4{});
 
