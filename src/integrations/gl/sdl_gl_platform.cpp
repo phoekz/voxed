@@ -196,8 +196,14 @@ void gpu_channel_close(gpu_device* gpu, gpu_channel* channel)
 
 void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args)
 {
+    // TODO(vinht): Append to command buffer.
     (void)channel;
-    (void)args;
+
+    float4 c = args->color;
+    glClearColor(c.x, c.y, c.z, c.w);
+    glClearDepth(args->depth);
+    glClearStencil(args->stencil);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 }
 
 void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 index)
