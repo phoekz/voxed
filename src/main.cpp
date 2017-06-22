@@ -173,7 +173,7 @@ ray generate_camera_ray(const app& app, const orbit_camera& camera)
     return ray;
 }
 
-bool initialize_voxel_app(voxel_app& vox_app)
+bool voxel_app_initialize(voxel_app& vox_app)
 {
     vox_app.shader = glCreateProgram();
     if (vox_app.shader == 0u)
@@ -283,7 +283,7 @@ bool initialize_voxel_app(voxel_app& vox_app)
     return true;
 }
 
-void update_voxel_app(const app& app, voxel_app& voxel_app)
+void voxel_app_update(const app& app, voxel_app& voxel_app)
 {
     if (mouse_button_pressed(button::left))
     {
@@ -297,11 +297,7 @@ void update_voxel_app(const app& app, voxel_app& voxel_app)
     }
 }
 
-void render_cube(
-    const app& app,
-    const voxel_app& vox_app,
-    const float3& color,
-    const float4x4& model_matrix)
+void render_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
 {
     glUniform3f(glGetUniformLocation(vox_app.shader, "color"), color.r, color.g, color.b);
 
@@ -316,7 +312,7 @@ void render_cube(
     glBindVertexArray(0);
 }
 
-void render_voxel_app(const app& app, const voxel_app& vox_app)
+void voxel_app_render(const app& app, const voxel_app& vox_app)
 {
     glUseProgram(vox_app.shader);
 
@@ -334,24 +330,24 @@ void render_voxel_app(const app& app, const voxel_app& vox_app)
         GL_FALSE,
         (const GLfloat*)&camera_mat);
 
-    render_cube(app, vox_app, vox_app.cube_color, float4x4{});
+    render_cube(vox_app, vox_app.cube_color, float4x4{});
 
     ray ray = generate_camera_ray(app, vox_app.camera);
     if (ray_intersects_aabb(ray, bounds3f{float3{-1.f, -1.f, -1.f}, float3{1.f, 1.f, 1.f}}))
     {
         float4x4 model_matrix = glm::translate(float4x4(1.f), ray.origin + ray.direction * ray.t) *
                                 glm::scale(float4x4(1.f), float3(0.1f));
-        render_cube(app, vox_app, float3(1.f, 0.2f, 0.2f), model_matrix);
+        render_cube(vox_app, float3(1.f, 0.2f, 0.2f), model_matrix);
     }
 
     glUseProgram(0);
 }
 
-void shutdown_voxel_app(voxel_app& vox_app)
+void voxel_app_shutdown(voxel_app* vox_app)
 {
-    glDeleteProgram(vox_app.shader);
-    glDeleteBuffers(1, &vox_app.cube_buffer);
-    glDeleteVertexArrays(1, &vox_app.cube_array);
+    glDeleteProgram(vox_app->shader);
+    glDeleteBuffers(1, &vox_app->cube_buffer);
+    glDeleteVertexArrays(1, &vox_app->cube_array);
 }
 }
 }
@@ -370,7 +366,7 @@ int main(int /*argc*/, char** /*argv*/)
     if (!vx::imgui_init(app.platform.window))
         vx::fatal("ImGui initialization failed");
 
-    if (!vx::initialize_voxel_app(voxel_app))
+    if (!vx::voxel_app_initialize(voxel_app))
         vx::fatal("Voxel app initialization failed");
 
     //
@@ -413,7 +409,7 @@ int main(int /*argc*/, char** /*argv*/)
 
         {
             vx::imgui_new_frame(app.platform.window);
-            vx::update_voxel_app(app, voxel_app);
+            vx::voxel_app_update(app, voxel_app);
 
             ImGui::Begin("Hello, ImGui");
             ImGui::End();
@@ -428,7 +424,7 @@ int main(int /*argc*/, char** /*argv*/)
             vx::gpu_channel_clear_cmd(channel, &clear_args);
             vx::gpu_channel_close(gpu, channel);
 
-            vx::render_voxel_app(app, voxel_app);
+            vx::voxel_app_render(app, voxel_app);
 
             ImGui::Render();
         }
@@ -440,7 +436,7 @@ int main(int /*argc*/, char** /*argv*/)
     // teardown
     //
 
-    vx::shutdown_voxel_app(voxel_app);
+    vx::voxel_app_shutdown(&voxel_app);
     vx::imgui_shutdown();
     vx::platform_quit(&app.platform);
 

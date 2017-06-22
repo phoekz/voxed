@@ -6,10 +6,6 @@ union SDL_Event;
 
 namespace vx
 {
-/*
- * These enumerations correspond to SDL_BUTTON_* values,
- * defined in http://hg.libsdl.org/SDL/file/default/include/SDL_mouse.h
- */
 enum class button : int
 {
     left = 1u,
