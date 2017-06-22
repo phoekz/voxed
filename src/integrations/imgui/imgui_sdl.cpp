@@ -135,9 +135,9 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
 
                 vx::gpu_channel_draw_indexed_primitives_cmd(
                     channel,
-                    vx::gpu_primitive_type_triangle,
+                    vx::gpu_primitive_type::triangle,
                     draw_cmd->ElemCount,
-                    vx::gpu_index_type_u16,
+                    vx::gpu_index_type::u16,
                     index_buffer,
                     index_offset * sizeof(vx::u16));
             }
@@ -213,10 +213,10 @@ bool imgui_init(platform* platform)
         program_src = read_whole_file("src/shaders/mtl/gui.metallib", &program_size);
 
         imgui_ctx.vertex_shader = gpu_shader_create(
-            gpu, gpu_shader_type_vertex, program_src, program_size, "vertex_main");
+            gpu, gpu_shader_type::vertex, program_src, program_size, "vertex_main");
 
         imgui_ctx.fragment_shader = gpu_shader_create(
-            gpu, gpu_shader_type_fragment, program_src, program_size, "fragment_main");
+            gpu, gpu_shader_type::fragment, program_src, program_size, "fragment_main");
 
         free(program_src);
     }
@@ -252,15 +252,15 @@ bool imgui_init(platform* platform)
         uv_size = sizeof(float2);
         col_size = 4 * sizeof(u8);
 
-        attributes[0].format = gpu_vertex_format_float2;
+        attributes[0].format = gpu_vertex_format::float2;
         attributes[0].buffer_index = 0;
         attributes[0].offset = 0;
 
-        attributes[1].format = gpu_vertex_format_float2;
+        attributes[1].format = gpu_vertex_format::float2;
         attributes[1].buffer_index = 1;
         attributes[1].offset = pos_size;
 
-        attributes[2].format = gpu_vertex_format_rgba8_unorm;
+        attributes[2].format = gpu_vertex_format::rgba8_unorm;
         attributes[2].buffer_index = 2;
         attributes[2].offset = pos_size + uv_size;
 
@@ -279,7 +279,7 @@ bool imgui_init(platform* platform)
         io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
 
         imgui_ctx.font_texture =
-            gpu_texture_create(gpu, w, h, gpu_pixel_format_rgba8_unorm, pixels);
+            gpu_texture_create(gpu, w, h, gpu_pixel_format::rgba8_unorm, pixels);
 
         io.Fonts->TexID = (void*)(iptr)imgui_ctx.font_texture;
     }
@@ -290,7 +290,7 @@ bool imgui_init(platform* platform)
 
     {
         imgui_ctx.font_sampler = gpu_sampler_create(
-            gpu, gpu_filter_mode_linear, gpu_filter_mode_linear, gpu_filter_mode_nearest);
+            gpu, gpu_filter_mode::linear, gpu_filter_mode::linear, gpu_filter_mode::nearest);
     }
 
     return true;
