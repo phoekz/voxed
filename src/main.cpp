@@ -81,6 +81,7 @@ struct voxel_app
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float4x4 camera_view{};
     orbit_camera camera{};
+    bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
 };
 
 void on_camera_dolly(orbit_camera& camera, float dz, float dt)
@@ -211,8 +212,8 @@ bool voxel_app_initialize(voxel_app& vox_app)
         glBindBuffer(GL_ARRAY_BUFFER, vox_app.cube_buffer);
 
         // the min and max corners of the cube to render
-        float3 mn{-1.f, -1.f, -1.f};
-        float3 mx{1.f, 1.f, 1.f};
+        float3 mn = vox_app.scene_bounds.min;
+        float3 mx = vox_app.scene_bounds.max;
 
         float3 attribs[] = {
             mn,
@@ -307,7 +308,7 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
     render_cube(vox_app, vox_app.cube_color, float4x4{});
 
     ray ray = generate_camera_ray(app, vox_app.camera);
-    if (ray_intersects_aabb(ray, bounds3f{float3{-1.f, -1.f, -1.f}, float3{1.f, 1.f, 1.f}}))
+    if (ray_intersects_aabb(ray, vox_app.scene_bounds))
     {
         float4x4 model_matrix = glm::translate(float4x4(1.f), ray.origin + ray.direction * ray.t) *
                                 glm::scale(float4x4(1.f), float3(0.1f));
