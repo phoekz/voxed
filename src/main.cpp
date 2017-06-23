@@ -297,15 +297,15 @@ bool voxel_app_initialize(voxel_app& vox_app)
             {{mx.x, mx.y, mx.z}, {0.f, 1.f, 0.f}}, // 14
             {{mx.x, mx.y, mn.z}, {0.f, 1.f, 0.f}}, // 15
             // -z
-            {{mn.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 19
-            {{mx.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 18
-            {{mx.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 17
-            {{mn.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 16
+            {{mn.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 16
+            {{mx.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 17
+            {{mx.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 18
+            {{mn.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 19
             // +z
-            {{mn.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 23
-            {{mx.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 22
-            {{mx.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 21
-            {{mn.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 20
+            {{mn.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 20
+            {{mx.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 21
+            {{mx.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 22
+            {{mn.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 23
         };
         int3 tris[] =
         {
