@@ -391,6 +391,7 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
 {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
+    glEnable(GL_FRAMEBUFFER_SRGB);
 
     int w, h;
     SDL_GetWindowSize(app.platform.window, &w, &h);
