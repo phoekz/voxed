@@ -79,8 +79,14 @@ struct voxel_app
     {
         GLuint vbo{0u}, ibo{0u}, vao{0u};
     } wire_cube, solid_cube;
+    struct
+    {
+        GLuint vbo{0u}, vao{0u};
+        u32 vertex_count;
+    } voxel_grid_lines;
     GLuint line_shader{0u}, solid_shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
+    float3 grid_color{0.4f, 0.4f, 0.4f};
     float3 selection_color{1.f, 0.2f, 0.2f};
     float4x4 camera_view{};
     orbit_camera camera{};
@@ -342,6 +348,50 @@ bool voxel_app_initialize(voxel_app& vox_app)
     }
 
     //
+    // voxel grid lines
+    //
+
+    {
+        GLuint vbo, vao;
+        float3 mn{-1.0f}, mx{+1.0f};
+        float3 scene_extents = extents(vox_app.scene_bounds);
+        float3 voxel_extents = scene_extents / (float)VX_GRID_SIZE;
+
+        // The grid is constructed on xz-plane with the grid pointing up
+        // towards +y. Two sets (horizontal & vertical) of line caps (begin &
+        // end). Number of grid lines is grid size + 1.
+        u32 vertex_count = 2 * 2 * (VX_GRID_SIZE + 1);
+        usize vertex_size = vertex_count * sizeof(float3);
+        float3* vertices = (float3*)malloc(vertex_size);
+        float3* vptr = vertices;
+        for (int i = 0; i < VX_GRID_SIZE + 1; i++)
+        {
+            *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mn.z};
+            *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mx.z};
+        }
+        for (int i = 0; i < VX_GRID_SIZE + 1; i++)
+        {
+            *vptr++ = float3{mn.x, 0.0f, mn.z + i * voxel_extents.z};
+            *vptr++ = float3{mx.x, 0.0f, mn.z + i * voxel_extents.z};
+        }
+
+        glCreateBuffers(1, &vbo);
+        glNamedBufferStorage(vbo, vertex_size, vertices, 0);
+
+        glCreateVertexArrays(1, &vao);
+        glVertexArrayAttribBinding(vao, 0, 0);
+        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+
+        glEnableVertexArrayAttrib(vao, 0);
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(float3));
+        free(vertices);
+
+        vox_app.voxel_grid_lines.vbo = vbo;
+        vox_app.voxel_grid_lines.vao = vao;
+        vox_app.voxel_grid_lines.vertex_count = vertex_count;
+    }
+
+    //
     // Shaders
     //
 
@@ -385,6 +435,19 @@ void render_solid_cube(const voxel_app& vox_app, const float3& color, const floa
 
     glBindVertexArray(vox_app.solid_cube.vao);
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+}
+
+void render_voxel_grid_lines(
+    const voxel_app& vox_app,
+    const float3& color,
+    const float4x4& model_matrix)
+{
+    glUseProgram(vox_app.line_shader);
+    glUniform3f(2, color.r, color.g, color.b);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+
+    glBindVertexArray(vox_app.voxel_grid_lines.vao);
+    glDrawArrays(GL_LINES, 0, vox_app.voxel_grid_lines.vertex_count);
 }
 
 void voxel_app_render(const app& app, const voxel_app& vox_app)
@@ -458,7 +521,27 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
         render_wire_cube(vox_app, vox_app.selection_color, model_matrix);
     }
 
-    render_wire_cube(vox_app, vox_app.cube_color, float4x4{});
+    //
+    // grid / guide lines
+    //
+
+    {
+        glDepthMask(GL_FALSE);
+        render_voxel_grid_lines(
+            vox_app, vox_app.grid_color, glm::translate(float4x4{}, float3{0.0f, -1.0f, 0.0f}));
+        render_voxel_grid_lines(
+            vox_app,
+            vox_app.grid_color,
+            glm::translate(float4x4{}, float3{-1.0f, 0.0f, 0.0f}) *
+                glm::rotate(float4x4{}, (float)M_PI / 2.0f, float3{0.0f, 0.0f, 1.0f}));
+        render_voxel_grid_lines(
+            vox_app,
+            vox_app.grid_color,
+            glm::translate(float4x4{}, float3{0.0f, 0.0f, -1.0f}) *
+                glm::rotate(float4x4{}, (float)M_PI / 2.0f, float3{1.0f, 0.0f, 0.0f}));
+        render_wire_cube(vox_app, vox_app.cube_color, float4x4{});
+        glDepthMask(GL_TRUE);
+    }
 }
 
 void voxel_app_shutdown(voxel_app* vox_app)
