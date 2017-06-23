@@ -38,7 +38,7 @@ struct app
 
     struct
     {
-        int2 size = int2(640, 640);
+        int2 size = int2(1600, 1200);
         const char* title = "voxed";
     } window;
 
@@ -79,7 +79,7 @@ struct voxel_app
     {
         GLuint vbo{0u}, ibo{0u}, vao{0u};
     } wire_cube, solid_cube;
-    GLuint shader{0u};
+    GLuint line_shader{0u}, solid_shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float3 selection_color{1.f, 0.2f, 0.2f};
     float4x4 camera_view{};
@@ -247,6 +247,7 @@ bool voxel_app_initialize(voxel_app& vox_app)
         glNamedBufferStorage(ibo, sizeof(lines), lines, 0);
 
         glCreateVertexArrays(1, &vao);
+
         glVertexArrayAttribBinding(vao, 0, 0);
         glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
         glEnableVertexArrayAttrib(vao, 0);
@@ -260,11 +261,93 @@ bool voxel_app_initialize(voxel_app& vox_app)
     }
 
     //
+    // solid cube
+    //
+
+    {
+        GLuint vao, vbo, ibo;
+        float3 mn{-1.0f}, mx{+1.0f};
+
+        struct vertex
+        {
+            float3 position, normal;
+        };
+
+        // clang-format off
+        vertex verts[] =
+        {
+            // -x
+            {{mn.x, mn.y, mn.z}, {-1.f, 0.f, 0.f}}, // 0
+            {{mn.x, mn.y, mx.z}, {-1.f, 0.f, 0.f}}, // 1
+            {{mn.x, mx.y, mx.z}, {-1.f, 0.f, 0.f}}, // 2
+            {{mn.x, mx.y, mn.z}, {-1.f, 0.f, 0.f}}, // 3
+            // +x
+            {{mx.x, mx.y, mn.z}, {1.f, 0.f, 0.f}}, // 4
+            {{mx.x, mx.y, mx.z}, {1.f, 0.f, 0.f}}, // 5
+            {{mx.x, mn.y, mx.z}, {1.f, 0.f, 0.f}}, // 6
+            {{mx.x, mn.y, mn.z}, {1.f, 0.f, 0.f}}, // 7
+            // -y
+            {{mx.x, mn.y, mn.z}, {0.f, -1.f, 0.f}}, // 8
+            {{mx.x, mn.y, mx.z}, {0.f, -1.f, 0.f}}, // 9
+            {{mn.x, mn.y, mx.z}, {0.f, -1.f, 0.f}}, // 10
+            {{mn.x, mn.y, mn.z}, {0.f, -1.f, 0.f}}, // 11
+            // +y
+            {{mn.x, mx.y, mn.z}, {0.f, 1.f, 0.f}}, // 12
+            {{mn.x, mx.y, mx.z}, {0.f, 1.f, 0.f}}, // 13
+            {{mx.x, mx.y, mx.z}, {0.f, 1.f, 0.f}}, // 14
+            {{mx.x, mx.y, mn.z}, {0.f, 1.f, 0.f}}, // 15
+            // -z
+            {{mn.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 19
+            {{mx.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 18
+            {{mx.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 17
+            {{mn.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 16
+            // +z
+            {{mn.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 23
+            {{mx.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 22
+            {{mx.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 21
+            {{mn.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 20
+        };
+        int3 tris[] =
+        {
+            {0,1,2}, {2,3,0}, // -x
+            {4,5,6}, {6,7,4}, // +x
+            {8,9,10}, {10,11,8}, // -y
+            {12,13,14}, {14,15,12}, // +y
+            {16,17,18}, {18,19,16}, // -z
+            {20,21,22}, {22,23,20}, // +z
+        };
+        // clang-format on
+
+        glCreateBuffers(1, &vbo);
+        glCreateBuffers(1, &ibo);
+        glNamedBufferStorage(vbo, sizeof(verts), verts, 0);
+        glNamedBufferStorage(ibo, sizeof(tris), tris, 0);
+
+        glCreateVertexArrays(1, &vao);
+
+        glVertexArrayAttribBinding(vao, 0, 0);
+        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glEnableVertexArrayAttrib(vao, 0);
+
+        glVertexArrayAttribBinding(vao, 1, 0);
+        glVertexArrayAttribFormat(vao, 1, 3, GL_FLOAT, GL_FALSE, sizeof(float3));
+        glEnableVertexArrayAttrib(vao, 1);
+
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(vertex));
+        glVertexArrayElementBuffer(vao, ibo);
+
+        vox_app.solid_cube.vao = vao;
+        vox_app.solid_cube.vbo = vbo;
+        vox_app.solid_cube.ibo = ibo;
+    }
+
+    //
     // Shaders
     //
 
     {
-        vox_app.shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
+        vox_app.line_shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
+        vox_app.solid_shader = compile_gl_shader_from_file("src/shaders/gl/solid.glsl");
     }
 
     return true;
@@ -284,8 +367,9 @@ void voxel_app_update(const app& app, voxel_app& voxel_app)
     }
 }
 
-void render_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
+void render_wire_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
 {
+    glUseProgram(vox_app.line_shader);
     glUniform3f(2, color.r, color.g, color.b);
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
@@ -293,14 +377,20 @@ void render_cube(const voxel_app& vox_app, const float3& color, const float4x4& 
     glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
 }
 
+void render_solid_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
+{
+    glUseProgram(vox_app.solid_shader);
+    glUniform3f(2, color.r, color.g, color.b);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+
+    glBindVertexArray(vox_app.solid_cube.vao);
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+}
+
 void voxel_app_render(const app& app, const voxel_app& vox_app)
 {
-    glDisable(GL_BLEND);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_SCISSOR_TEST);
-
-    glUseProgram(vox_app.shader);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
 
     int w, h;
     SDL_GetWindowSize(app.platform.window, &w, &h);
@@ -310,6 +400,9 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
             vox_app.camera.fovy, float(w) / h, vox_app.camera.near, vox_app.camera.far) *
         glm::lookAt(eye(vox_app.camera), vox_app.camera.focal_point, up(vox_app.camera));
 
+    glUseProgram(vox_app.line_shader);
+    glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
+    glUseProgram(vox_app.solid_shader);
     glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
 
     float3 scene_extents = extents(vox_app.scene_bounds);
@@ -331,7 +424,7 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
                                      glm::scale(float4x4{1.f}, 0.5f * voxel_extents);
 
                     float3 voxel_color = voxel_coords / (float)VX_GRID_SIZE;
-                    render_cube(vox_app, voxel_color, model);
+                    render_solid_cube(vox_app, voxel_color, model);
                 }
             }
 
@@ -361,17 +454,16 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
         float4x4 model_matrix =
             glm::translate(float4x4{1.f}, ray.origin + ray.direction * closest_t) *
             glm::scale(float4x4{1.f}, float3{0.025f});
-        render_cube(vox_app, vox_app.selection_color, model_matrix);
+        render_wire_cube(vox_app, vox_app.selection_color, model_matrix);
     }
 
-    render_cube(vox_app, vox_app.cube_color, float4x4{});
-
-    glUseProgram(0);
+    render_wire_cube(vox_app, vox_app.cube_color, float4x4{});
 }
 
 void voxel_app_shutdown(voxel_app* vox_app)
 {
-    glDeleteProgram(vox_app->shader);
+    glDeleteProgram(vox_app->line_shader);
+    glDeleteProgram(vox_app->solid_shader);
     glDeleteBuffers(1, &vox_app->wire_cube.vbo);
     glDeleteVertexArrays(1, &vox_app->wire_cube.vao);
 }
@@ -456,7 +548,7 @@ int main(int /*argc*/, char** /*argv*/)
         {
             vx::gpu_device* gpu = app.platform.gpu;
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
-            vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 0.0f, 0};
+            vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 1.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
             vx::imgui_render(&app.platform, channel);
             vx::voxel_app_render(app, voxel_app);
