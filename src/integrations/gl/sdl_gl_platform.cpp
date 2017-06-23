@@ -193,6 +193,7 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     SDL_GLContext sdl_gl_context;
 
     SDL_Init(SDL_INIT_VIDEO);
+    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);
 
     sdl_window = SDL_CreateWindow(
         title,
