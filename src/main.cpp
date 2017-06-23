@@ -75,8 +75,10 @@ struct orbit_camera
 
 struct voxel_app
 {
-    GLuint cube_buffer{0u};
-    GLuint cube_array{0u};
+    struct
+    {
+        GLuint vbo{0u}, ibo{0u}, vao{0u};
+    } wire_cube, solid_cube;
     GLuint shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float3 selection_color{1.f, 0.2f, 0.2f};
@@ -205,9 +207,11 @@ GLuint compile_gl_shader_from_file(const char* file_path)
 
 bool voxel_app_initialize(voxel_app& vox_app)
 {
-    vox_app.shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
-    memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
+    //
+    // voxel grid
+    //
 
+    memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
     for (int z = 0; z < VX_GRID_SIZE; z++)
         for (int y = 0; y < VX_GRID_SIZE; y++)
             for (int x = 0; x < VX_GRID_SIZE; x++)
@@ -217,58 +221,51 @@ bool voxel_app_initialize(voxel_app& vox_app)
                     vox_app.voxel_grid[i] = 1;
                 }
 
-    glGenVertexArrays(1, &vox_app.cube_array);
-    glBindVertexArray(vox_app.cube_array);
+    //
+    // wire cube
+    //
+
     {
-        glGenBuffers(1, &vox_app.cube_buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, vox_app.cube_buffer);
+        GLuint vao, vbo, ibo;
+        float3 mn{-1.0f}, mx{+1.0f};
 
-        // the min and max corners of the cube to render
-        float3 mn = vox_app.scene_bounds.min;
-        float3 mx = vox_app.scene_bounds.max;
-
-        float3 attribs[] = {
-            mn,
-            {mn.x, mn.y, mx.z},
-            mn,
-            {mn.x, mx.y, mn.z},
-            mn,
-            {mx.x, mn.y, mn.z},
-
-            mx,
-            {mx.x, mx.y, mn.z},
-            mx,
-            {mx.x, mn.y, mx.z},
-            mx,
-            {mn.x, mx.y, mx.z},
-
-            {mn.x, mx.y, mn.z},
-            {mn.x, mx.y, mx.z},
-            {mn.x, mx.y, mn.z},
-            {mx.x, mx.y, mn.z},
-            {mx.x, mn.y, mn.z},
-            {mx.x, mx.y, mn.z},
-
-            {mx.x, mn.y, mx.z},
-            {mn.x, mn.y, mx.z},
-            {mx.x, mn.y, mx.z},
-            {mx.x, mn.y, mn.z},
-            {mn.x, mx.y, mx.z},
-            {mn.x, mn.y, mx.z},
+        // clang-format off
+        float3 corners[] = {
+            {mn.x, mn.y, mn.z}, {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z}, {mx.x, mn.y, mn.z},
+            {mn.x, mx.y, mn.z}, {mn.x, mx.y, mx.z}, {mx.x, mx.y, mx.z}, {mx.x, mx.y, mn.z},
         };
+        uint2 lines[] = {
+            {0, 1}, {1, 2}, {2, 3}, {3, 0},
+            {4, 5}, {5, 6}, {6, 7}, {7, 4},
+            {0, 4}, {1, 5}, {2, 6}, {3, 7},
+        };
+        // clang-format on
 
-        glBufferData(
-            GL_ARRAY_BUFFER, sizeof(float3) * vx_countof(attribs), &attribs[0], GL_STATIC_DRAW);
+        glCreateBuffers(1, &vbo);
+        glCreateBuffers(1, &ibo);
+        glNamedBufferStorage(vbo, sizeof(corners), corners, 0);
+        glNamedBufferStorage(ibo, sizeof(lines), lines, 0);
+
+        glCreateVertexArrays(1, &vao);
+        glVertexArrayAttribBinding(vao, 0, 0);
+        glVertexArrayAttribFormat(vao, 0, 3, GL_FLOAT, GL_FALSE, 0);
+        glEnableVertexArrayAttrib(vao, 0);
+
+        glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(float3));
+        glVertexArrayElementBuffer(vao, ibo);
+
+        vox_app.wire_cube.vao = vao;
+        vox_app.wire_cube.vbo = vbo;
+        vox_app.wire_cube.ibo = ibo;
     }
+
+    //
+    // Shaders
+    //
 
     {
-        // the aVertex attribute
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, (GLboolean)GL_FALSE, sizeof(float3), 0);
+        vox_app.shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
     }
-
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     return true;
 }
@@ -290,12 +287,10 @@ void voxel_app_update(const app& app, voxel_app& voxel_app)
 void render_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
 {
     glUniform3f(2, color.r, color.g, color.b);
-
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
-    glBindVertexArray(vox_app.cube_array);
-    glDrawArrays(GL_LINES, 0, 24);
-    glBindVertexArray(0);
+    glBindVertexArray(vox_app.wire_cube.vao);
+    glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
 }
 
 void voxel_app_render(const app& app, const voxel_app& vox_app)
@@ -377,8 +372,8 @@ void voxel_app_render(const app& app, const voxel_app& vox_app)
 void voxel_app_shutdown(voxel_app* vox_app)
 {
     glDeleteProgram(vox_app->shader);
-    glDeleteBuffers(1, &vox_app->cube_buffer);
-    glDeleteVertexArrays(1, &vox_app->cube_array);
+    glDeleteBuffers(1, &vox_app->wire_cube.vbo);
+    glDeleteVertexArrays(1, &vox_app->wire_cube.vao);
 }
 }
 }
