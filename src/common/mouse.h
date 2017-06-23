@@ -6,9 +6,9 @@ union SDL_Event;
 
 namespace vx
 {
-enum class button : int
+enum class button
 {
-    left = 1u,
+    left = 1,
     middle,
     right
 };
