@@ -11,8 +11,6 @@ namespace vx
 {
 static bool ray_intersects_aabb(const ray& r, const bounds3f& b, float* out_t)
 {
-    float t = std::numeric_limits<float>::max();
-
     float inv_dx = 1.f / r.direction.x;
     float tmin = (b.min.x - r.origin.x) * inv_dx;
     float tmax = (b.max.x - r.origin.x) * inv_dx;
