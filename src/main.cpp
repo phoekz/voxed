@@ -69,9 +69,19 @@ struct orbit_camera
     float azimuth{0.f};
     float radius{5.f};
     const float min_radius{1.5f}, max_radius{10.f};
+
+    float4x4 transform;
 };
 
 #define VX_GRID_SIZE 16
+
+struct voxel_intersect_event
+{
+    float t = INFINITY;
+    float3 position, normal;
+    bounds3f voxel_bounds;
+    int3 voxel_coords;
+};
 
 struct voxel_app
 {
@@ -90,8 +100,13 @@ struct voxel_app
     float3 selection_color{0.05f, 0.05f, 0.05f};
     float4x4 camera_view{};
     orbit_camera camera{};
+
     bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
+    float3 scene_extents;
+    float3 voxel_extents;
     u8 voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
+
+    voxel_intersect_event intersect;
 };
 
 void on_camera_dolly(orbit_camera& camera, float dz, float dt)
@@ -211,7 +226,7 @@ GLuint compile_gl_shader_from_file(const char* file_path)
     return program;
 }
 
-bool voxel_app_initialize(voxel_app& vox_app)
+bool voxel_app_init(voxel_app& vox_app)
 {
     //
     // voxel grid
@@ -226,6 +241,9 @@ bool voxel_app_initialize(voxel_app& vox_app)
                     int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
                     vox_app.voxel_grid[i] = 1;
                 }
+
+    vox_app.scene_extents = extents(vox_app.scene_bounds);
+    vox_app.voxel_extents = vox_app.scene_extents / (float)VX_GRID_SIZE;
 
     //
     // wire cube
@@ -392,7 +410,7 @@ bool voxel_app_initialize(voxel_app& vox_app)
     }
 
     //
-    // Shaders
+    // shaders
     //
 
     {
@@ -403,17 +421,122 @@ bool voxel_app_initialize(voxel_app& vox_app)
     return true;
 }
 
-void voxel_app_update(const app& app, voxel_app& voxel_app)
+float3 reconstruct_voxel_normal(const float3& voxel_center, const float3& point_on_voxel)
 {
-    if (mouse_button_pressed(button::right))
+    // Reconstruct hit normal from voxel center & hit point by finding
+    // highest magnitude coefficient from their difference, zeroing other
+    // coefficients and extracting the sign of the highest coefficient.
+
+    float3 normal = glm::normalize(point_on_voxel - voxel_center);
+    int max_coeff_index = 0;
+    float max_coeff = 0.0f;
+
+    for (int i = 0; i < 3; i++)
+        if (std::abs(normal[i]) > max_coeff)
+        {
+            max_coeff = std::abs(normal[i]);
+            max_coeff_index = i;
+        }
+
+    for (int i = 0; i < 3; i++)
+        normal[i] = (i == max_coeff_index) ? glm::sign(normal[i]) : 0.0f;
+
+    return normal;
+}
+
+void voxel_app_update(const app& app, voxel_app& vox_app)
+{
+    //
+    // camera controls
+    //
+
     {
-        auto delta = mouse_delta();
-        on_camera_orbit(voxel_app.camera, float(delta.x), float(delta.y), app.time.delta);
+        if (mouse_button_pressed(button::right))
+        {
+            auto delta = mouse_delta();
+            on_camera_orbit(vox_app.camera, float(delta.x), float(delta.y), app.time.delta);
+        }
+
+        if (scroll_wheel_moved())
+        {
+            on_camera_dolly(vox_app.camera, float(-scroll_delta()), app.time.delta);
+        }
+
+        int w, h;
+        SDL_GetWindowSize(app.platform.window, &w, &h);
+
+        vox_app.camera.transform =
+            glm::perspective(
+                vox_app.camera.fovy, float(w) / h, vox_app.camera.near, vox_app.camera.far) *
+            glm::lookAt(eye(vox_app.camera), vox_app.camera.focal_point, up(vox_app.camera));
     }
 
-    if (scroll_wheel_moved())
+    //
+    // intersect voxel grid
+    //
+
     {
-        on_camera_dolly(voxel_app.camera, float(-scroll_delta()), app.time.delta);
+        vox_app.intersect = voxel_intersect_event{};
+
+        ray ray = generate_camera_ray(app, vox_app.camera);
+
+        for (int z = 0; z < VX_GRID_SIZE; z++)
+            for (int y = 0; y < VX_GRID_SIZE; y++)
+                for (int x = 0; x < VX_GRID_SIZE; x++)
+                {
+                    int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    if (vox_app.voxel_grid[i])
+                    {
+                        float3 voxel_coords{x, y, z};
+                        bounds3f voxel_bounds;
+                        voxel_bounds.min =
+                            vox_app.scene_bounds.min + voxel_coords * vox_app.voxel_extents;
+                        voxel_bounds.max = voxel_bounds.min + vox_app.voxel_extents;
+
+                        float t;
+                        if (ray_intersects_aabb(ray, voxel_bounds, &t) && t < vox_app.intersect.t)
+                        {
+                            vox_app.intersect.t = t;
+                            vox_app.intersect.voxel_bounds = voxel_bounds;
+                            vox_app.intersect.voxel_coords = voxel_coords;
+                            vox_app.intersect.position = ray.origin + ray.direction * t;
+                            vox_app.intersect.normal = reconstruct_voxel_normal(
+                                center(voxel_bounds), vox_app.intersect.position);
+                        }
+                    }
+                }
+    }
+
+    //
+    // voxel editing
+    //
+
+    if (vox_app.intersect.t < INFINITY)
+    {
+        if (mouse_button_down(button::left))
+        {
+            int3 proposed_voxel = vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
+            int3 new_voxel = glm::clamp(
+                proposed_voxel,
+                int3(0, 0, 0),
+                int3(VX_GRID_SIZE - 1, VX_GRID_SIZE - 1, VX_GRID_SIZE - 1));
+
+            if (new_voxel != vox_app.intersect.voxel_coords)
+            {
+                fprintf(
+                    stdout, "Inserted voxel at %d %d %d\n", new_voxel.x, new_voxel.y, new_voxel.z);
+                vox_app.voxel_grid
+                    [new_voxel.x + new_voxel.y * VX_GRID_SIZE +
+                     new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE] = 1;
+            }
+            else
+                fprintf(
+                    stdout,
+                    "New voxel at %d %d %d would go outside the boundary! \n",
+                    proposed_voxel.x,
+                    proposed_voxel.y,
+                    proposed_voxel.z);
+        }
     }
 }
 
@@ -450,27 +573,35 @@ void render_voxel_grid_lines(
     glDrawArrays(GL_LINES, 0, vox_app.voxel_grid_lines.vertex_count);
 }
 
-void voxel_app_render(const app& app, voxel_app& vox_app)
+void voxel_app_render(const app&, const voxel_app& vox_app)
 {
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glEnable(GL_FRAMEBUFFER_SRGB);
+    //
+    // fixed-function state
+    //
 
-    int w, h;
-    SDL_GetWindowSize(app.platform.window, &w, &h);
+    {
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glEnable(GL_FRAMEBUFFER_SRGB);
 
-    float4x4 camera_mat =
-        glm::perspective(
-            vox_app.camera.fovy, float(w) / h, vox_app.camera.near, vox_app.camera.far) *
-        glm::lookAt(eye(vox_app.camera), vox_app.camera.focal_point, up(vox_app.camera));
+        glFrontFace(GL_CCW);
+        glDepthFunc(GL_LEQUAL);
+    }
 
-    glUseProgram(vox_app.line_shader);
-    glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
-    glUseProgram(vox_app.solid_shader);
-    glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&camera_mat);
+    //
+    // common shader constants
+    //
 
-    float3 scene_extents = extents(vox_app.scene_bounds);
-    float3 voxel_extents = scene_extents / (float)VX_GRID_SIZE;
+    {
+        glUseProgram(vox_app.line_shader);
+        glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&vox_app.camera.transform);
+        glUseProgram(vox_app.solid_shader);
+        glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&vox_app.camera.transform);
+    }
+
+    //
+    // voxels
+    //
 
     for (int z = 0; z < VX_GRID_SIZE; z++)
         for (int y = 0; y < VX_GRID_SIZE; y++)
@@ -481,115 +612,42 @@ void voxel_app_render(const app& app, voxel_app& vox_app)
                 {
                     float3 voxel_coords{x, y, z};
                     bounds3f voxel_bounds;
-                    voxel_bounds.min = vox_app.scene_bounds.min + voxel_coords * voxel_extents;
-                    voxel_bounds.max = voxel_bounds.min + voxel_extents;
+                    voxel_bounds.min =
+                        vox_app.scene_bounds.min + voxel_coords * vox_app.voxel_extents;
+                    voxel_bounds.max = voxel_bounds.min + vox_app.voxel_extents;
 
                     float4x4 model = glm::translate(float4x4{1.f}, center(voxel_bounds)) *
-                                     glm::scale(float4x4{1.f}, 0.5f * voxel_extents);
+                                     glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents);
 
                     float3 voxel_color = voxel_coords / (float)VX_GRID_SIZE;
                     render_solid_cube(vox_app, voxel_color, model);
                 }
             }
 
-    ray ray = generate_camera_ray(app, vox_app.camera);
+    //
+    // voxel cursor
+    //
 
-    struct
+    if (vox_app.intersect.t < INFINITY)
     {
-        float t = INFINITY;
-        bounds3f voxel_bounds;
-        int3 voxel_coords;
-    } hit;
-
-    for (int z = 0; z < VX_GRID_SIZE; z++)
-        for (int y = 0; y < VX_GRID_SIZE; y++)
-            for (int x = 0; x < VX_GRID_SIZE; x++)
-            {
-                int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                if (vox_app.voxel_grid[i])
-                {
-                    float3 voxel_coords{x, y, z};
-                    bounds3f voxel_bounds;
-                    voxel_bounds.min = vox_app.scene_bounds.min + voxel_coords * voxel_extents;
-                    voxel_bounds.max = voxel_bounds.min + voxel_extents;
-
-                    float t;
-                    if (ray_intersects_aabb(ray, voxel_bounds, &t) && t < hit.t)
-                    {
-                        hit.t = t;
-                        hit.voxel_bounds = voxel_bounds;
-                        hit.voxel_coords = voxel_coords;
-                    }
-                }
-            }
-
-    if (hit.t < INFINITY)
-    {
-        //
-        // hit point
-        //
-
-        float3 hit_point = ray.origin + ray.direction * hit.t;
         render_solid_cube(
             vox_app,
             vox_app.selection_color,
-            glm::translate(float4x4{1.f}, hit_point) * glm::scale(float4x4{1.f}, float3{0.005f}));
-
-        //
-        // ghost voxel
-        //
-
-        // Reconstruct hit normal from voxel center & hit point by finding
-        // highest magnitude coefficient from their difference, zeroing other
-        // coefficients and extracting the sign of the highest coefficient.
-
-        float3 voxel_center = center(hit.voxel_bounds);
-        float3 hit_normal = glm::normalize(hit_point - voxel_center);
-        int highest_coeff_index = 0;
-        float highest_coeff = 0.0f;
-        for (int i = 0; i < 3; i++)
-            if (std::abs(hit_normal[i]) > highest_coeff)
-            {
-                highest_coeff = std::abs(hit_normal[i]);
-                highest_coeff_index = i;
-            }
-        for (int i = 0; i < 3; i++)
-            hit_normal[i] = (i == highest_coeff_index) ? glm::sign(hit_normal[i]) : 0.0f;
+            glm::translate(float4x4{1.f}, vox_app.intersect.position) *
+                glm::scale(float4x4{1.f}, float3{0.005f}));
 
         render_wire_cube(
             vox_app,
             vox_app.selection_color,
-            glm::translate(float4x4{1.f}, voxel_center + voxel_extents * hit_normal) *
-                glm::scale(float4x4{1.f}, 0.5f * voxel_extents));
-
-        if (mouse_button_down(button::left))
-        {
-            int3 proposed_voxel = hit.voxel_coords + (int3)hit_normal;
-            int3 new_voxel = glm::clamp(
-                proposed_voxel,
-                int3(0, 0, 0),
-                int3(VX_GRID_SIZE - 1, VX_GRID_SIZE - 1, VX_GRID_SIZE - 1));
-
-            if (new_voxel != hit.voxel_coords)
-            {
-                fprintf(
-                    stdout, "Inserted voxel at %d %d %d\n", new_voxel.x, new_voxel.y, new_voxel.z);
-                vox_app.voxel_grid
-                    [new_voxel.x + new_voxel.y * VX_GRID_SIZE +
-                     new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE] = 1;
-            }
-            else
-                fprintf(
-                    stdout,
-                    "New voxel at %d %d %d would go outside the boundary! \n",
-                    proposed_voxel.x,
-                    proposed_voxel.y,
-                    proposed_voxel.z);
-        }
+            glm::translate(
+                float4x4{1.f},
+                center(vox_app.intersect.voxel_bounds) +
+                    vox_app.voxel_extents * vox_app.intersect.normal) *
+                glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
     }
 
     //
-    // grid / guide lines
+    // grid lines
     //
 
     {
@@ -635,7 +693,7 @@ int main(int /*argc*/, char** /*argv*/)
     if (!vx::imgui_init(&app.platform))
         vx::fatal("ImGui initialization failed");
 
-    if (!vx::voxel_app_initialize(voxel_app))
+    if (!vx::voxel_app_init(voxel_app))
         vx::fatal("Voxel app initialization failed");
 
     //
