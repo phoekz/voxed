@@ -187,10 +187,10 @@ GLuint compile_gl_shader_from_file(const char* file_path)
     GLuint fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
     GLuint program = glCreateProgram();
     char* vs_defs[] = {
-        "#version 450 core\n", "#define VX_SHADER 0\n", shader_source,
+        "#version 440 core\n", "#define VX_SHADER 0\n", shader_source,
     };
     char* fs_defs[] = {
-        "#version 450 core\n", "#define VX_SHADER 1\n", shader_source,
+        "#version 440 core\n", "#define VX_SHADER 1\n", shader_source,
     };
 
     glShaderSource(vs_stage, vx_countof(vs_defs), vs_defs, 0);
