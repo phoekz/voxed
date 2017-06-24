@@ -274,7 +274,7 @@ bool voxel_app_init(voxel_app& vox_app)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(lines), lines, GL_STATIC_DRAW);
 
-        glEnableVertexArrayAttrib(vao, 0);
+        glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
 
         vox_app.wire_cube.vao = vao;
@@ -351,9 +351,9 @@ bool voxel_app_init(voxel_app& vox_app)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tris), tris, GL_STATIC_DRAW);
 
-        glEnableVertexArrayAttrib(vao, 0);
+        glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
-        glEnableVertexArrayAttrib(vao, 1);
+        glEnableVertexAttribArray(1);
         glVertexAttribPointer(
             1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (const void*)sizeof(float3));
 
@@ -397,7 +397,7 @@ bool voxel_app_init(voxel_app& vox_app)
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, vertex_size, vertices, GL_STATIC_DRAW);
 
-        glEnableVertexArrayAttrib(vao, 0);
+        glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
 
         free(vertices);
