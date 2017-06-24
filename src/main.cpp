@@ -26,6 +26,12 @@ namespace
 {
 float clamp(float t, float min, float max) { return std::max(min, std::min(t, max)); }
 
+template<typename VecType>
+VecType remap_range(VecType value, VecType a_min, VecType a_max, VecType b_min, VecType b_max)
+{
+    return b_min + (value - a_min) * (b_max - b_min) / (a_max - a_min);
+}
+
 constexpr float degrees_to_radians(float degrees) { return (degrees * float(M_PI)) / 180.f; }
 
 constexpr float radians_to_degrees(float radians) { return (radians * 180.f) / float(M_PI); }
@@ -79,7 +85,6 @@ struct voxel_intersect_event
 {
     float t = INFINITY;
     float3 position, normal;
-    bounds3f voxel_bounds;
     int3 voxel_coords;
 };
 
@@ -232,18 +237,11 @@ bool voxel_app_init(voxel_app& vox_app)
     // voxel grid
     //
 
-    memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
-    for (int z = 0; z < VX_GRID_SIZE; z++)
-        for (int y = 0; y < VX_GRID_SIZE; y++)
-            for (int x = 0; x < VX_GRID_SIZE; x++)
-                if (rand() % 24 == 0)
-                {
-                    int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    vox_app.voxel_grid[i] = 1;
-                }
-
-    vox_app.scene_extents = extents(vox_app.scene_bounds);
-    vox_app.voxel_extents = vox_app.scene_extents / (float)VX_GRID_SIZE;
+    {
+        memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
+        vox_app.scene_extents = extents(vox_app.scene_bounds);
+        vox_app.voxel_extents = vox_app.scene_extents / (float)VX_GRID_SIZE;
+    }
 
     //
     // wire cube
@@ -444,6 +442,20 @@ float3 reconstruct_voxel_normal(const float3& voxel_center, const float3& point_
     return normal;
 }
 
+bounds3f reconstruct_voxel_bounds(
+    const int3& voxel_coords,
+    const bounds3f& voxel_grid_bounds,
+    i32 voxel_grid_resolution)
+{
+    float3 scene_extents = extents(voxel_grid_bounds);
+    float3 voxel_extents = scene_extents / (float)voxel_grid_resolution;
+
+    bounds3f voxel_bounds;
+    voxel_bounds.min = voxel_grid_bounds.min + float3{voxel_coords} * voxel_extents;
+    voxel_bounds.max = voxel_bounds.min + voxel_extents;
+    return voxel_bounds;
+}
+
 void voxel_app_update(const app& app, voxel_app& vox_app)
 {
     //
@@ -472,13 +484,15 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
     }
 
     //
-    // intersect voxel grid
+    // intersect scene
     //
 
     {
         vox_app.intersect = voxel_intersect_event{};
 
         ray ray = generate_camera_ray(app, vox_app.camera);
+
+        // voxel grid
 
         for (int z = 0; z < VX_GRID_SIZE; z++)
             for (int y = 0; y < VX_GRID_SIZE; y++)
@@ -497,7 +511,6 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                         if (ray_intersects_aabb(ray, voxel_bounds, &t) && t < vox_app.intersect.t)
                         {
                             vox_app.intersect.t = t;
-                            vox_app.intersect.voxel_bounds = voxel_bounds;
                             vox_app.intersect.voxel_coords = voxel_coords;
                             vox_app.intersect.position = ray.origin + ray.direction * t;
                             vox_app.intersect.normal = reconstruct_voxel_normal(
@@ -505,6 +518,39 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                         }
                     }
                 }
+
+        // voxel rulers
+
+        if (vox_app.intersect.t == INFINITY)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                // TODO(vinht): Remove hard coded planes.
+
+                float t;
+                float3 mn{-1.f}, mx{+1.f};
+                mx[i] = -1.f;
+
+                if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < vox_app.intersect.t)
+                {
+                    vox_app.intersect.t = t;
+                    vox_app.intersect.position = ray.origin + ray.direction * t;
+
+                    int3 v = (int3)glm::floor(remap_range(
+                        vox_app.intersect.position,
+                        vox_app.scene_bounds.min,
+                        vox_app.scene_bounds.max,
+                        float3{0.f},
+                        float3{VX_GRID_SIZE}));
+
+                    v[i] = -1;
+
+                    vox_app.intersect.voxel_coords = v;
+                    vox_app.intersect.normal = float3{0.f};
+                    vox_app.intersect.normal[i] = 1.f;
+                }
+            }
+        }
     }
 
     //
@@ -641,7 +687,8 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
             vox_app.selection_color,
             glm::translate(
                 float4x4{1.f},
-                center(vox_app.intersect.voxel_bounds) +
+                center(reconstruct_voxel_bounds(
+                    vox_app.intersect.voxel_coords, vox_app.scene_bounds, VX_GRID_SIZE)) +
                     vox_app.voxel_extents * vox_app.intersect.normal) *
                 glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
     }
