@@ -103,6 +103,7 @@ struct voxel_app
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float3 grid_color{0.4f, 0.4f, 0.4f};
     float3 selection_color{0.05f, 0.05f, 0.05f};
+    float3 erase_color{1.0f, 0.1f, 0.1f};
     float4x4 camera_view{};
     orbit_camera camera{};
 
@@ -561,27 +562,48 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
     {
         if (mouse_button_down(button::left))
         {
-            int3 proposed_voxel = vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
-            int3 new_voxel = glm::clamp(
-                proposed_voxel,
-                int3(0, 0, 0),
-                int3(VX_GRID_SIZE - 1, VX_GRID_SIZE - 1, VX_GRID_SIZE - 1));
+            const u8* kb = SDL_GetKeyboardState(0);
 
-            if (new_voxel != vox_app.intersect.voxel_coords)
+            if (kb[SDL_SCANCODE_LSHIFT])
             {
-                fprintf(
-                    stdout, "Inserted voxel at %d %d %d\n", new_voxel.x, new_voxel.y, new_voxel.z);
-                vox_app.voxel_grid
-                    [new_voxel.x + new_voxel.y * VX_GRID_SIZE +
-                     new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE] = 1;
+                int3 p = vox_app.intersect.voxel_coords;
+                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
+                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
+                {
+                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    assert(vox_app.voxel_grid[i]);
+                    vox_app.voxel_grid[i] = 0;
+                }
             }
             else
-                fprintf(
-                    stdout,
-                    "New voxel at %d %d %d would go outside the boundary! \n",
-                    proposed_voxel.x,
-                    proposed_voxel.y,
-                    proposed_voxel.z);
+            {
+                int3 proposed_voxel =
+                    vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
+                int3 new_voxel = glm::clamp(
+                    proposed_voxel,
+                    int3(0, 0, 0),
+                    int3(VX_GRID_SIZE - 1, VX_GRID_SIZE - 1, VX_GRID_SIZE - 1));
+
+                if (new_voxel != vox_app.intersect.voxel_coords)
+                {
+                    fprintf(
+                        stdout,
+                        "Inserted voxel at %d %d %d\n",
+                        new_voxel.x,
+                        new_voxel.y,
+                        new_voxel.z);
+                    vox_app.voxel_grid
+                        [new_voxel.x + new_voxel.y * VX_GRID_SIZE +
+                         new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE] = 1;
+                }
+                else
+                    fprintf(
+                        stdout,
+                        "New voxel at %d %d %d would go outside the boundary! \n",
+                        proposed_voxel.x,
+                        proposed_voxel.y,
+                        proposed_voxel.z);
+            }
         }
     }
 }
@@ -682,15 +704,31 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
             glm::translate(float4x4{1.f}, vox_app.intersect.position) *
                 glm::scale(float4x4{1.f}, float3{0.005f}));
 
-        render_wire_cube(
-            vox_app,
-            vox_app.selection_color,
-            glm::translate(
-                float4x4{1.f},
-                center(reconstruct_voxel_bounds(
-                    vox_app.intersect.voxel_coords, vox_app.scene_bounds, VX_GRID_SIZE)) +
-                    vox_app.voxel_extents * vox_app.intersect.normal) *
-                glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
+        const u8* kb = SDL_GetKeyboardState(0);
+
+        if (kb[SDL_SCANCODE_LSHIFT])
+        {
+            render_wire_cube(
+                vox_app,
+                vox_app.erase_color,
+                glm::translate(
+                    float4x4{1.f},
+                    center(reconstruct_voxel_bounds(
+                        vox_app.intersect.voxel_coords, vox_app.scene_bounds, VX_GRID_SIZE))) *
+                    glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
+        }
+        else
+        {
+            render_wire_cube(
+                vox_app,
+                vox_app.selection_color,
+                glm::translate(
+                    float4x4{1.f},
+                    center(reconstruct_voxel_bounds(
+                        vox_app.intersect.voxel_coords, vox_app.scene_bounds, VX_GRID_SIZE)) +
+                        vox_app.voxel_extents * vox_app.intersect.normal) *
+                    glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
+        }
     }
 
     //
