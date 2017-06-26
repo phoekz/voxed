@@ -88,18 +88,33 @@ struct voxel_intersect_event
     int3 voxel_coords;
 };
 
+enum voxel_flag
+{
+    voxel_flag_solid = 1 << 0,
+};
+
+struct voxel_leaf
+{
+    float3 color;
+    u32 flags;
+};
+
 struct voxel_app
 {
     struct
     {
         GLuint vbo{0u}, ibo{0u}, vao{0u};
-    } wire_cube, solid_cube;
+    } wire_cube, solid_cube, quad;
     struct
     {
         GLuint vbo{0u}, vao{0u};
         u32 vertex_count;
     } voxel_grid_lines;
-    GLuint line_shader{0u}, solid_shader{0u};
+    struct
+    {
+        GLuint tex{0u};
+    } color_wheel;
+    GLuint line_shader{0u}, solid_shader{0u}, textured_shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float3 grid_color{0.4f, 0.4f, 0.4f};
     float3 selection_color{0.05f, 0.05f, 0.05f};
@@ -110,9 +125,13 @@ struct voxel_app
     bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
     float3 scene_extents;
     float3 voxel_extents;
-    u8 voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
+    voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
 
+    // TODO(vinht): This is getting ridiculous.
     voxel_intersect_event intersect;
+    bool color_wheel_changed;
+    float3 color_wheel_hit_pos;
+    float3 color_wheel_rgb;
 };
 
 void on_camera_dolly(orbit_camera& camera, float dz, float dt)
@@ -232,6 +251,17 @@ GLuint compile_gl_shader_from_file(const char* file_path)
     return program;
 }
 
+// hsv2rgb from https://stackoverflow.com/a/19873710
+float3 hue(float h)
+{
+    float r = std::abs(h * 6.f - 3.f) - 1.f;
+    float g = 2.f - std::abs(h * 6.f - 2.f);
+    float b = 2.f - std::abs(h * 6.f - 4.f);
+    return glm::clamp(float3{r, g, b}, float3{0.f}, float3{1.f});
+}
+
+float3 hsv_to_rgb(float3 hsv) { return float3(((hue(hsv.x) - 1.f) * hsv.y + 1.f) * hsv.z); }
+
 bool voxel_app_init(voxel_app& vox_app)
 {
     //
@@ -240,6 +270,13 @@ bool voxel_app_init(voxel_app& vox_app)
 
     {
         memset(vox_app.voxel_grid, 0, sizeof(vox_app.voxel_grid));
+        printf("%d x %d x %d voxel grid\n", VX_GRID_SIZE, VX_GRID_SIZE, VX_GRID_SIZE);
+        printf("%d voxels\n", VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE);
+        printf("sizeof(voxel_leaf) = %zu\n", sizeof(voxel_leaf));
+        printf(
+            "sizeof(voxel_grid) = %zu (%.2f MB)\n",
+            sizeof(vox_app.voxel_grid),
+            sizeof(vox_app.voxel_grid) * 1e-6);
         vox_app.scene_extents = extents(vox_app.scene_bounds);
         vox_app.voxel_extents = vox_app.scene_extents / (float)VX_GRID_SIZE;
     }
@@ -409,12 +446,114 @@ bool voxel_app_init(voxel_app& vox_app)
     }
 
     //
+    // quad
+    //
+
+    {
+        GLuint vao, vbo, ibo;
+
+        struct vertex
+        {
+            float3 position;
+            float2 uv;
+        };
+        vertex verts[] = {
+            {{-1.f, -1.f, 0.f}, {0.f, 0.f}},
+            {{+1.f, -1.f, 0.f}, {1.f, 0.f}},
+            {{+1.f, +1.f, 0.f}, {1.f, 1.f}},
+            {{-1.f, +1.f, 0.f}, {0.f, 1.f}},
+        };
+        int3 tris[] = {{0, 1, 2}, {2, 3, 0}};
+
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ibo);
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tris), tris, GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(
+            1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const void*)sizeof(float3));
+
+        vox_app.quad.vao = vao;
+        vox_app.quad.vbo = vbo;
+        vox_app.quad.ibo = ibo;
+    }
+
+    //
+    // color wheel
+    //
+
+    {
+        // Baking HSV color wheel into a texture.
+
+        i32 w, h;
+        u8* pixels;
+
+        w = h = 512;
+        pixels = (u8*)malloc(4 * w * h);
+
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = x + y * w;
+                float2 p = remap_range(         // remap the
+                    float2{x + 0.5f, y + 0.5f}, // pixel center
+                    float2{0.f, 0.f},           // from
+                    float2{w, h},               // image space
+                    float2{-1.f, -1.f},         // to
+                    float2{1.f, 1.f});          // [-1,1]
+                p.y *= -1.f; // NOTE(vinht): In OpenGL, (0,0) starts from lower-left corner!
+                float r = glm::length(p);
+                if (r < 1.f)
+                {
+                    float angle =
+                        remap_range(glm::atan(p.y, p.x), -float(M_PI), float(M_PI), 0.f, 1.f);
+                    float3 rgb = hsv_to_rgb(float3{angle, r, 1.f});
+                    for (int c = 0; c < 3; c++)
+                        pixels[4 * i + c] = (u8)(255.f * rgb[c]);
+                    pixels[4 * i + 3] = 255;
+                }
+                else
+                {
+                    for (int c = 0; c < 3; c++)
+                        pixels[4 * i + c] = 128;
+                    pixels[4 * i + 3] = 255;
+                }
+            }
+
+        GLuint tex;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        free(pixels);
+
+        vox_app.color_wheel.tex = tex;
+    }
+
+    //
     // shaders
     //
 
     {
         vox_app.line_shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
         vox_app.solid_shader = compile_gl_shader_from_file("src/shaders/gl/solid.glsl");
+        vox_app.textured_shader = compile_gl_shader_from_file("src/shaders/gl/textured.glsl");
     }
 
     return true;
@@ -500,7 +639,7 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                 for (int x = 0; x < VX_GRID_SIZE; x++)
                 {
                     int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    if (vox_app.voxel_grid[i])
+                    if (vox_app.voxel_grid[i].flags)
                     {
                         float3 voxel_coords{x, y, z};
                         bounds3f voxel_bounds;
@@ -522,33 +661,54 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
 
         // voxel rulers
 
-        if (vox_app.intersect.t == INFINITY)
+        for (int i = 0; i < 3; i++)
         {
-            for (int i = 0; i < 3; i++)
+            // TODO(vinht): Remove hard coded planes.
+
+            float t;
+            float3 mn{-1.f}, mx{+1.f};
+            mx[i] = -1.f;
+
+            if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < vox_app.intersect.t)
             {
-                // TODO(vinht): Remove hard coded planes.
+                vox_app.intersect.t = t;
+                vox_app.intersect.position = ray.origin + ray.direction * t;
 
-                float t;
-                float3 mn{-1.f}, mx{+1.f};
-                mx[i] = -1.f;
+                int3 v = (int3)glm::floor(remap_range(
+                    vox_app.intersect.position,
+                    vox_app.scene_bounds.min,
+                    vox_app.scene_bounds.max,
+                    float3{0.f},
+                    float3{VX_GRID_SIZE}));
 
-                if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < vox_app.intersect.t)
+                v[i] = -1;
+
+                vox_app.intersect.voxel_coords = v;
+                vox_app.intersect.normal = float3{0.f};
+                vox_app.intersect.normal[i] = 1.f;
+            }
+        }
+
+        // color wheel
+
+        {
+            float3 mn{-1.f, -1.f, -1.f}, mx{1.f, -1.f, 1.f};
+            float3 off{2.5f, 0.f, 0.f};
+            bounds3f bounds{mn + off, mx + off};
+            vox_app.color_wheel_changed = false;
+            float t;
+            if (ray_intersects_aabb(ray, bounds, &t) && t < vox_app.intersect.t &&
+                mouse_button_down(button::left))
+            {
+                float3 p0 = ray.origin + ray.direction * t;
+                float3 p = remap_range(p0, bounds.min, bounds.max, float3{-1.f}, float3{1.f});
+                float r = glm::length(float2{p.x, p.z});
+                if (r < 1.0f)
                 {
-                    vox_app.intersect.t = t;
-                    vox_app.intersect.position = ray.origin + ray.direction * t;
-
-                    int3 v = (int3)glm::floor(remap_range(
-                        vox_app.intersect.position,
-                        vox_app.scene_bounds.min,
-                        vox_app.scene_bounds.max,
-                        float3{0.f},
-                        float3{VX_GRID_SIZE}));
-
-                    v[i] = -1;
-
-                    vox_app.intersect.voxel_coords = v;
-                    vox_app.intersect.normal = float3{0.f};
-                    vox_app.intersect.normal[i] = 1.f;
+                    float angle =
+                        remap_range(glm::atan(p.z, p.x), -float(M_PI), float(M_PI), 0.f, 1.f);
+                    vox_app.color_wheel_changed = true;
+                    vox_app.color_wheel_rgb = hsv_to_rgb(float3{angle, r, 1.f});
                 }
             }
         }
@@ -571,18 +731,15 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                     glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    assert(vox_app.voxel_grid[i]);
-                    vox_app.voxel_grid[i] = 0;
+                    assert(vox_app.voxel_grid[i].flags & voxel_flag_solid);
+                    vox_app.voxel_grid[i].flags = 0;
                 }
             }
             else
             {
                 int3 proposed_voxel =
                     vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
-                int3 new_voxel = glm::clamp(
-                    proposed_voxel,
-                    int3(0, 0, 0),
-                    int3(VX_GRID_SIZE - 1, VX_GRID_SIZE - 1, VX_GRID_SIZE - 1));
+                int3 new_voxel = glm::clamp(proposed_voxel, int3{0}, int3{VX_GRID_SIZE - 1});
 
                 if (new_voxel != vox_app.intersect.voxel_coords)
                 {
@@ -592,9 +749,10 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                         new_voxel.x,
                         new_voxel.y,
                         new_voxel.z);
-                    vox_app.voxel_grid
-                        [new_voxel.x + new_voxel.y * VX_GRID_SIZE +
-                         new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE] = 1;
+                    i32 i = new_voxel.x + new_voxel.y * VX_GRID_SIZE +
+                            new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    vox_app.voxel_grid[i].flags |= voxel_flag_solid;
+                    vox_app.voxel_grid[i].color = vox_app.color_wheel_rgb;
                 }
                 else
                     fprintf(
@@ -641,6 +799,18 @@ void render_voxel_grid_lines(
     glDrawArrays(GL_LINES, 0, vox_app.voxel_grid_lines.vertex_count);
 }
 
+void render_textured_quad(const voxel_app& vox_app, GLuint texture, const float4x4& model_matrix)
+{
+    glUseProgram(vox_app.textured_shader);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform1i(2, 0);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+
+    glBindVertexArray(vox_app.quad.vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+}
+
 void voxel_app_render(const app&, const voxel_app& vox_app)
 {
     //
@@ -661,10 +831,12 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
     //
 
     {
-        glUseProgram(vox_app.line_shader);
-        glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&vox_app.camera.transform);
-        glUseProgram(vox_app.solid_shader);
-        glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&vox_app.camera.transform);
+        GLuint shaders[] = {vox_app.line_shader, vox_app.solid_shader, vox_app.textured_shader};
+        for (int i = 0; i < vx_countof(shaders); i++)
+        {
+            glUseProgram(shaders[i]);
+            glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&vox_app.camera.transform);
+        }
     }
 
     //
@@ -676,7 +848,7 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
             for (int x = 0; x < VX_GRID_SIZE; x++)
             {
                 int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                if (vox_app.voxel_grid[i])
+                if (vox_app.voxel_grid[i].flags & voxel_flag_solid)
                 {
                     float3 voxel_coords{x, y, z};
                     bounds3f voxel_bounds;
@@ -687,8 +859,7 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
                     float4x4 model = glm::translate(float4x4{1.f}, center(voxel_bounds)) *
                                      glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents);
 
-                    float3 voxel_color = voxel_coords / (float)VX_GRID_SIZE;
-                    render_solid_cube(vox_app, voxel_color, model);
+                    render_solid_cube(vox_app, vox_app.voxel_grid[i].color, model);
                 }
             }
 
@@ -730,6 +901,16 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
                     glm::scale(float4x4{1.f}, 0.5f * vox_app.voxel_extents));
         }
     }
+
+    //
+    // color wheel
+    //
+
+    render_textured_quad(
+        vox_app,
+        vox_app.color_wheel.tex,
+        glm::translate(float4x4{1.f}, float3{2.5f, -1.f, 0.f}) *
+            glm::rotate(float4x4{1.f}, -(float)M_PI / 2.0f, float3{1.f, 0.f, 0.f}));
 
     //
     // grid lines
