@@ -1,19 +1,165 @@
 #include "platform/gpu.h"
 #include "common/error.h"
+#include "common/macros.h"
 
 #include "SDL.h"
 #include "GL/gl3w.h"
 
-namespace
-{
-struct gl_device
-{
-    SDL_GLContext ctx;
-};
-}
+#include <cstdlib>
 
 namespace vx
 {
+namespace
+{
+struct gl_buffer
+{
+    GLuint object;
+    GLenum target;
+};
+
+static_assert(sizeof(gl_buffer) == sizeof(uptr), "gl_buffer is not the size of a pointer");
+
+struct gl_texture
+{
+    GLuint object;
+    GLenum target;
+};
+
+static_assert(sizeof(gl_texture) == sizeof(uptr), "gl_texture is not the size of a pointer");
+
+struct gl_shader
+{
+    GLuint object;
+    GLuint padding;
+};
+
+static_assert(sizeof(gl_shader) == sizeof(uptr), "gl_shader is not the size of a pointer");
+
+struct gl_pipeline
+{
+    GLuint program;
+
+    bool depth_test_enabled;
+    bool culling_enabled;
+    bool scissor_test_enabled;
+    bool blend_enabled;
+
+    // TODO: blend function, comparison function?
+};
+
+static_assert(sizeof(gl_pipeline) == sizeof(uptr), "gl_pipeline is not the size of a pointer");
+
+struct gl_attribute
+{
+    GLint index;
+    GLint elements;
+    GLenum type;
+    GLboolean normalized;
+    const void* offset;
+};
+
+struct gl_descriptor
+{
+    gl_attribute* attributes;
+    u32 attribute_count;
+    u32 stride;
+};
+
+struct gl_device
+{
+    SDL_GLContext context;
+    GLuint dummy_vao;
+
+    gl_pipeline current_pipeline;
+};
+
+GLint gpu_convert_enum(gpu_buffer_type type)
+{
+    switch (type)
+    {
+        case gpu_buffer_type::vertex:
+            return GL_ARRAY_BUFFER;
+        case gpu_buffer_type::index:
+            return GL_ELEMENT_ARRAY_BUFFER;
+        case gpu_buffer_type::shader_storage:
+            return GL_SHADER_STORAGE_BUFFER;
+        case gpu_buffer_type::constant:
+            return GL_UNIFORM_BUFFER;
+        default:
+            assert(!"Invalid gpu_buffer_type");
+            return 0;
+    }
+}
+
+GLint gpu_convert_enum(gpu_index_type type)
+{
+    switch (type)
+    {
+        case gpu_index_type::u16:
+            return GL_UNSIGNED_SHORT;
+        case gpu_index_type::u32:
+            return GL_UNSIGNED_INT;
+        default:
+            assert(!"Invalid gpu_index_type");
+            return 0;
+    }
+}
+
+gl_buffer gpu_convert_handle(gpu_buffer* buffer) { return (gl_buffer&)buffer; }
+
+gl_texture gpu_convert_handle(gpu_texture* texture) { return (gl_texture&)texture; }
+
+gl_shader gpu_convert_handle(gpu_shader* shader) { return (gl_shader&)shader; }
+
+gl_pipeline gpu_convert_handle(gpu_pipeline* pipeline) { return (gl_pipeline&)pipeline; }
+
+GLint gpu_convert_enum(gpu_shader_type type)
+{
+    switch (type)
+    {
+        case gpu_shader_type::vertex:
+            return GL_VERTEX_SHADER;
+        case gpu_shader_type::fragment:
+            return GL_FRAGMENT_SHADER;
+        default:
+            assert(!"Invalid gpu_shader_type");
+            return 0;
+    }
+}
+
+GLint gpu_convert_enum(gpu_primitive_type type)
+{
+    switch (type)
+    {
+        case gpu_primitive_type::point:
+            return GL_POINT;
+        case gpu_primitive_type::line:
+            return GL_LINE;
+        case gpu_primitive_type::line_strip:
+            return GL_LINE_STRIP;
+        case gpu_primitive_type::triangle:
+            return GL_TRIANGLES;
+        case gpu_primitive_type::triangle_strip:
+            return GL_TRIANGLE_STRIP;
+        default:
+            assert(!"Invalid gpu_primitive_type");
+            return 0;
+    }
+}
+
+void set_capability(GLenum capability, bool enabled)
+{
+    if (enabled)
+    {
+        glEnable(capability);
+    }
+    else
+    {
+        glDisable(capability);
+    }
+}
+}
+
 void platform_init(platform* platform, const char* title, int2 initial_size)
 {
     SDL_Window* sdl_window;
@@ -32,13 +178,25 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     if (!sdl_window)
         fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
 
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+
     sdl_gl_context = SDL_GL_CreateContext(sdl_window);
+
+    if (!sdl_gl_context)
+        fatal("OpenGL context creation failed!");
 
     if (gl3wInit() == -1)
         fatal("gl3wInit failed");
 
+    gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
+    glCreateVertexArrays(1, &device->dummy_vao);
+
+    device->context = sdl_gl_context;
+
     platform->window = sdl_window;
-    platform->gpu = (gpu_device*)sdl_gl_context;
+    platform->gpu = (gpu_device*)device;
 }
 
 void platform_quit(platform* platform)
@@ -47,14 +205,14 @@ void platform_quit(platform* platform)
     SDL_GLContext sdl_gl_context;
 
     sdl_window = (SDL_Window*)platform->window;
-    sdl_gl_context = (SDL_GLContext)platform->gpu;
+    sdl_gl_context = ((gl_device*)platform->gpu)->context;
 
     SDL_GL_DeleteContext(sdl_gl_context);
     SDL_DestroyWindow(sdl_window);
     SDL_Quit();
 }
 
-void platform_frame_begin(platform* /*platform*/) {}
+void platform_frame_begin(platform* platform) { (void)platform; }
 
 void platform_frame_end(platform* platform)
 {
@@ -63,47 +221,89 @@ void platform_frame_end(platform* platform)
     SDL_GL_SwapWindow(sdl_window);
 }
 
-gpu_buffer* gpu_buffer_create(gpu_device* gpu, usize size)
+gpu_buffer* gpu_buffer_create(gpu_device* /*gpu*/, usize size, gpu_buffer_type type)
 {
-    (void)gpu;
-    (void)size;
-    return nullptr;
+    gl_buffer buffer = {0};
+    glGenBuffers(1, &buffer.object);
+    if (buffer.object == 0)
+        return nullptr;
+
+    buffer.target = gpu_convert_enum(type);
+
+    GLint prev = 0;
+    glGetIntegerv(buffer.target, &prev);
+
+    glBindBuffer(buffer.target, buffer.object);
+    glBufferData(buffer.target, size, nullptr, GL_STATIC_DRAW);
+    glBindBuffer(buffer.target, prev);
+
+    return (gpu_buffer*)(*(uptr*)&buffer);
 }
 
-void gpu_buffer_update(gpu_device* gpu, gpu_buffer* buffer, void* data, usize size, usize offset)
+void gpu_buffer_update(
+    gpu_device* /*gpu*/,
+    gpu_buffer* buffer_handle,
+    void* data,
+    usize size,
+    usize offset)
 {
-    (void)gpu;
-    (void)buffer;
-    (void)data;
-    (void)size;
-    (void)offset;
+    gl_buffer buffer = gpu_convert_handle(buffer_handle);
+
+    glBindBuffer(buffer.target, buffer.object);
+    glBufferSubData(buffer.target, GLintptr(offset), size, data);
 }
 
-void gpu_buffer_destroy(gpu_device* gpu, gpu_buffer* buffer)
+void gpu_buffer_destroy(gpu_device* /*gpu*/, gpu_buffer* buffer)
 {
-    (void)gpu;
-    (void)buffer;
+    if (!buffer)
+        return;
+
+    gl_buffer gl_buffer = gpu_convert_handle(buffer);
+    glDeleteBuffers(1, &gl_buffer.object);
 }
 
 gpu_texture* gpu_texture_create(
-    gpu_device* gpu,
+    gpu_device* /*gpu*/,
     u32 width,
     u32 height,
     gpu_pixel_format format,
     void* data)
 {
-    (void)gpu;
-    (void)width;
-    (void)height;
-    (void)format;
-    (void)data;
-    return nullptr;
+    gl_texture texture = {0};
+    glGenTextures(1, &texture.object);
+
+    // TODO: texture type
+    texture.target = GL_TEXTURE_2D;
+    glBindTexture(texture.target, texture.object);
+
+    glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+
+    GLint px_format = 0;
+    switch (format)
+    {
+        case gpu_pixel_format::rgba8_unorm:
+            px_format = GL_RGBA;
+    }
+
+    GLint px_type = 0;
+    switch (format)
+    {
+        case gpu_pixel_format::rgba8_unorm:
+            px_type = GL_UNSIGNED_BYTE;
+    }
+
+    // here, the internalFormat is the same as the format
+    glTexImage2D(texture.target, 0, px_format, width, height, 0, px_format, px_type, data);
+
+    return (gpu_texture*)(*(uptr*)&texture);
 }
 
-void gpu_texture_destroy(gpu_device* gpu, gpu_texture* texture)
+void gpu_texture_destroy(gpu_device* /*gpu*/, gpu_texture* texture_handle)
 {
-    (void)gpu;
-    (void)texture;
+    gl_texture texture = gpu_convert_handle(texture_handle);
+    glDeleteTextures(1, &texture.object);
 }
 
 gpu_sampler* gpu_sampler_create(
@@ -126,67 +326,185 @@ void gpu_sampler_destroy(gpu_device* gpu, gpu_sampler* sampler)
 }
 
 gpu_vertex_desc* gpu_vertex_desc_create(
-    gpu_device* gpu,
+    gpu_device* /*gpu*/,
     gpu_vertex_desc_attribute* attributes,
     u32 attribute_count,
     u32 vertex_stride)
 {
-    (void)gpu;
-    (void)attributes;
-    (void)attribute_count;
-    (void)vertex_stride;
-    return nullptr;
+    gl_attribute* gl_attributes = (gl_attribute*)std::calloc(attribute_count, sizeof(gl_attribute));
+    uptr offset = 0u;
+    for (u32 i = 0u; i < attribute_count; i++)
+    {
+        u32 element_count = 0u;
+        switch (attributes[i].format)
+        {
+            case gpu_vertex_format::float1:
+                element_count = 1u;
+                break;
+            case gpu_vertex_format::float2:
+                element_count = 2u;
+                break;
+            case gpu_vertex_format::float3:
+                element_count = 3u;
+                break;
+            case gpu_vertex_format::float4:
+                element_count = 4u;
+                break;
+            case gpu_vertex_format::rgba8_unorm:
+                element_count = 4u;
+                break;
+            default:
+                break;
+        }
+
+        i32 element_type = 0;
+        switch (attributes[i].format)
+        {
+            case gpu_vertex_format::float1:
+            case gpu_vertex_format::float2:
+            case gpu_vertex_format::float3:
+            case gpu_vertex_format::float4:
+                element_type = GL_FLOAT;
+                break;
+            case gpu_vertex_format::rgba8_unorm:
+                element_type = GL_UNSIGNED_BYTE;
+                break;
+            default:
+                break;
+        }
+
+        uptr element_size = 0u;
+        switch (attributes[i].format)
+        {
+            case gpu_vertex_format::float1:
+                element_size = 4u;
+                break;
+            case gpu_vertex_format::float2:
+                element_size = 8u;
+                break;
+            case gpu_vertex_format::float3:
+                element_size = 12u;
+                break;
+            case gpu_vertex_format::float4:
+                element_size = 16u;
+                break;
+            case gpu_vertex_format::rgba8_unorm:
+                element_size = 4u;
+                break;
+            default:
+                break;
+        }
+
+        gl_attributes[i].index = attributes[i].buffer_index;
+        gl_attributes[i].elements = element_count;
+        gl_attributes[i].normalized =
+            attributes[i].format == gpu_vertex_format::rgba8_unorm ? GL_TRUE : GL_FALSE;
+        gl_attributes[i].type = element_type;
+        gl_attributes[i].offset = (const void*)offset;
+
+        offset += element_size;
+    }
+
+    gl_descriptor* descriptor = (gl_descriptor*)std::calloc(1, sizeof(gl_descriptor));
+    descriptor->attributes = gl_attributes;
+    descriptor->attribute_count = attribute_count;
+    descriptor->stride = vertex_stride;
+
+    return (gpu_vertex_desc*)descriptor;
 }
 
-void gpu_vertex_desc_destroy(gpu_device* gpu, gpu_vertex_desc* vertex_desc)
+void gpu_vertex_desc_destroy(gpu_device* /*gpu*/, gpu_vertex_desc* vertex_desc)
 {
-    (void)gpu;
-    (void)vertex_desc;
+    gl_descriptor* descriptor = (gl_descriptor*)vertex_desc;
+    std::free(descriptor->attributes);
+    std::free(descriptor);
 }
 
 gpu_shader* gpu_shader_create(
-    gpu_device* gpu,
+    gpu_device* /*gpu*/,
     gpu_shader_type type,
     void* data,
-    usize size,
-    const char* main_function)
+    usize /*size*/,
+    const char* /*main_function*/)
 {
-    (void)gpu;
-    (void)type;
-    (void)data;
-    (void)size;
-    (void)main_function;
-    return nullptr;
+    char* shader_define[] = {"#define VX_SHADER 0\n", "#define VX_SHADER 1\n"};
+    char* defs[] = {"#version 440 core\n", shader_define[int(type)], (char*)data};
+
+    gl_shader shader = {0};
+    shader.object = glCreateShader(gpu_convert_enum(type));
+    glShaderSource(shader.object, vx_countof(defs), defs, 0);
+    glCompileShader(shader.object);
+
+    GLint status;
+    glGetShaderiv(shader.object, GL_COMPILE_STATUS, &status);
+    if (status == GL_FALSE)
+    {
+        // TODO: log error here
+        char buf[2048];
+        glGetShaderInfoLog(shader.object, sizeof(buf) - 1u, 0, buf);
+        fatal("Shader compilation failed: %s", buf);
+    }
+
+    return (gpu_shader*)(*(uptr*)&shader);
 }
 
-void gpu_shader_destroy(gpu_device* gpu, gpu_shader* shader)
+void gpu_shader_destroy(gpu_device* /*gpu*/, gpu_shader* shader)
 {
-    (void)gpu;
-    (void)shader;
+    if (!shader)
+        return;
+
+    gl_shader gl_shader = gpu_convert_handle(shader);
+    glDeleteShader(gl_shader.object);
 }
 
 gpu_pipeline* gpu_pipeline_create(
-    gpu_device* gpu,
-    gpu_shader* vertex_shader,
-    gpu_shader* fragment_shader)
+    gpu_device* /*gpu*/,
+    gpu_shader* vertex_shader_handle,
+    gpu_shader* fragment_shader_handle,
+    const gpu_pipeline_options& options)
 {
-    (void)gpu;
-    (void)vertex_shader;
-    (void)fragment_shader;
-    return nullptr;
+    gl_shader vertex_shader = gpu_convert_handle(vertex_shader_handle);
+    gl_shader fragment_shader = gpu_convert_handle(fragment_shader_handle);
+
+    gl_pipeline pipeline = {0};
+    pipeline.blend_enabled = options.blend_enabled;
+    pipeline.culling_enabled = options.culling_enabled;
+    pipeline.depth_test_enabled = options.depth_test_enabled;
+    pipeline.scissor_test_enabled = options.scissor_test_enabled;
+
+    pipeline.program = glCreateProgram();
+
+    if (!pipeline.program)
+        fatal("Program creation failed");
+
+    glAttachShader(pipeline.program, vertex_shader.object);
+    glAttachShader(pipeline.program, fragment_shader.object);
+
+    glLinkProgram(pipeline.program);
+
+    GLint status;
+    glGetProgramiv(pipeline.program, GL_LINK_STATUS, &status);
+
+    if (status == GL_FALSE)
+    {
+        char buf[2048];
+        glGetProgramInfoLog(pipeline.program, sizeof(buf) - 1u, 0, buf);
+        fatal("Program linking failed: %s", buf);
+    }
+
+    return (gpu_pipeline*)(*(uptr*)(&pipeline));
 }
 
-void gpu_pipeline_destroy(gpu_device* gpu, gpu_pipeline* pipeline)
+void gpu_pipeline_destroy(gpu_device* /*gpu*/, gpu_pipeline* pipeline_handle)
 {
-    (void)gpu;
-    (void)pipeline;
+    if (!pipeline_handle)
+        return;
+
+    gl_pipeline pipeline = gpu_convert_handle(pipeline_handle);
+    glDeleteProgram(pipeline.program);
 }
 
-gpu_channel* gpu_channel_open(gpu_device* gpu)
-{
-    (void)gpu;
-    return nullptr;
-}
+gpu_channel* gpu_channel_open(gpu_device* gpu) { return (gpu_channel*)gpu; }
 
 void gpu_channel_close(gpu_device* gpu, gpu_channel* channel)
 {
@@ -206,18 +524,50 @@ void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 }
 
-void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 index)
+void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer_handle, u32 /*index*/)
 {
-    (void)channel;
-    (void)buffer;
-    (void)index;
+    gl_device* device = (gl_device*)channel;
+    gl_buffer buffer = gpu_convert_handle(buffer_handle);
+    if (buffer.target == GL_UNIFORM_BUFFER)
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0u, buffer.object);
+        GLuint current_program = device->current_pipeline.program;
+        // WTF, why doesn't the index work here?
+        GLuint block_index = glGetUniformBlockIndex(current_program, "Matrix");
+        glUniformBlockBinding(current_program, block_index, 0u);
+    }
+    else
+    {
+        glBindBuffer(buffer.target, buffer.object);
+    }
 }
 
-void gpu_channel_set_texture_cmd(gpu_channel* channel, gpu_texture* texture, u32 index)
+void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vertex_desc)
 {
-    (void)channel;
-    (void)texture;
-    (void)index;
+    gl_device* device = (gl_device*)channel;
+    gl_descriptor* descriptor = (gl_descriptor*)vertex_desc;
+
+    glBindVertexArray(device->dummy_vao);
+
+    for (u32 i = 0u; i < descriptor->attribute_count; i++)
+    {
+        const gl_attribute& attrib = descriptor->attributes[i];
+        glEnableVertexAttribArray(attrib.index);
+        glVertexAttribPointer(
+            attrib.index,
+            attrib.elements,
+            attrib.type,
+            attrib.normalized,
+            descriptor->stride,
+            attrib.offset);
+    }
+}
+
+void gpu_channel_set_texture_cmd(gpu_channel* /*channel*/, gpu_texture* texture_handle, u32 index)
+{
+    gl_texture texture = gpu_convert_handle(texture_handle);
+    glBindTexture(texture.target, texture.object);
+    glUniform1i(GLint(index), 0);
 }
 
 void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32 index)
@@ -227,49 +577,61 @@ void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32
     (void)index;
 }
 
-void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline)
+void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline_handle)
 {
-    (void)channel;
-    (void)pipeline;
+    gl_device* device = (gl_device*)channel;
+    gl_pipeline pipeline = gpu_convert_handle(pipeline_handle);
+    device->current_pipeline = pipeline;
+
+    glBindVertexArray(device->dummy_vao);
+
+    set_capability(GL_BLEND, pipeline.blend_enabled);
+    set_capability(GL_CULL_FACE, pipeline.culling_enabled);
+    set_capability(GL_DEPTH_TEST, pipeline.depth_test_enabled);
+    set_capability(GL_SCISSOR_TEST, pipeline.scissor_test_enabled);
+
+    // TODO: expose via the api
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(pipeline.program);
 }
 
-void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
+void gpu_channel_set_scissor_cmd(gpu_channel* /*channel*/, gpu_scissor_rect* rect)
 {
-    (void)channel;
-    (void)rect;
+    glScissor(GLint(rect->x), GLint(rect->y), GLint(rect->w), GLint(rect->h));
 }
 
-void gpu_channel_set_viewport_cmd(gpu_channel* channel, gpu_viewport* viewport)
+void gpu_channel_set_viewport_cmd(gpu_channel* /*channel*/, gpu_viewport* viewport)
 {
-    (void)channel;
-    (void)viewport;
+    glViewport(GLint(viewport->x), GLint(viewport->y), GLsizei(viewport->w), GLsizei(viewport->h));
 }
 
 void gpu_channel_draw_primitives_cmd(
-    gpu_channel* channel,
+    gpu_channel* /*channel*/,
     gpu_primitive_type primitive_type,
     u32 vertex_start,
     u32 vertex_count)
 {
-    (void)channel;
-    (void)primitive_type;
-    (void)vertex_start;
-    (void)vertex_count;
+    glDrawArrays(gpu_convert_enum(primitive_type), vertex_start, vertex_count);
 }
 
 void gpu_channel_draw_indexed_primitives_cmd(
-    gpu_channel* channel,
+    gpu_channel* /*channel*/,
     gpu_primitive_type primitive_type,
     u32 index_count,
     gpu_index_type index_type,
-    gpu_buffer* index_buffer,
+    gpu_buffer* index_buffer_handle,
     u32 index_byte_offset)
 {
-    (void)channel;
-    (void)primitive_type;
-    (void)index_count;
-    (void)index_type;
-    (void)index_buffer;
-    (void)index_byte_offset;
+    gl_buffer index_buffer = gpu_convert_handle(index_buffer_handle);
+    assert(index_buffer.target == GL_ELEMENT_ARRAY_BUFFER);
+    glBindBuffer(index_buffer.target, index_buffer.object);
+
+    glDrawElements(
+        gpu_convert_enum(primitive_type),
+        index_count,
+        gpu_convert_enum(index_type),
+        (const GLvoid*)uptr(index_byte_offset));
 }
 }
