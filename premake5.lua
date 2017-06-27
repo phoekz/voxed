@@ -5,7 +5,7 @@ workspace (project_name)
     configurations { "debug", "release" }
     language ("C++")
     architecture ("x86_64")
-    debugdir (".")
+    debugdir ("bin/%{cfg.system}/%{cfg.buildcfg}")
     floatingpoint ("Fast")
     fpu ("Hardware")
     location ("build/" .. os.get())
@@ -90,12 +90,18 @@ project (project_name)
     filter "system:windows"
         files {
             "src/integrations/gl/**",
+            "src/shaders/**.glsl",
         }
         includedirs {
             path.join(ext_dir, "SDL-2.0.4/include"),
             path.join(ext_dir, "gl3w/include"),
         }
+
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
         defines { "SDL_MAIN_HANDLED" }
         links { "gl3w", "opengl32" }
         postbuildcommands { "{COPY} " .. path.join(os.getcwd(), ext_dir, "SDL-2.0.4/bin/win64/SDL2.dll") .. " %{cfg.targetdir}" }
+
+        filter "files:**.glsl"
+            buildcommands { "{COPY} %{file.abspath} %{cfg.targetdir}/shaders/gl" }
+            buildoutputs { "%{cfg.targetdir}/shaders/gl/%{file.name}" }

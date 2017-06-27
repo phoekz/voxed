@@ -13,6 +13,14 @@ struct gpu_shader;
 struct gpu_pipeline;
 struct gpu_channel;
 
+enum class gpu_buffer_type
+{
+    vertex,
+    index,
+    shader_storage,
+    constant,
+};
+
 enum class gpu_vertex_format
 {
     float1,
@@ -64,7 +72,7 @@ struct gpu_viewport
     float x, y, w, h, znear, zfar;
 };
 
-gpu_buffer* gpu_buffer_create(gpu_device* gpu, usize size);
+gpu_buffer* gpu_buffer_create(gpu_device* gpu, usize size, gpu_buffer_type type);
 void gpu_buffer_update(gpu_device* gpu, gpu_buffer* buffer, void* data, usize size, usize offset);
 void gpu_buffer_destroy(gpu_device* gpu, gpu_buffer* buffer);
 
@@ -105,10 +113,19 @@ gpu_shader* gpu_shader_create(
     const char* main_function);
 void gpu_shader_destroy(gpu_device* gpu, gpu_shader* shader);
 
+struct gpu_pipeline_options
+{
+    bool depth_test_enabled;
+    bool culling_enabled;
+    bool scissor_test_enabled;
+    bool blend_enabled;
+};
+
 gpu_pipeline* gpu_pipeline_create(
     gpu_device* gpu,
     gpu_shader* vertex_shader,
-    gpu_shader* fragment_shader);
+    gpu_shader* fragment_shader,
+    const gpu_pipeline_options& options);
 void gpu_pipeline_destroy(gpu_device* gpu, gpu_pipeline* pipeline);
 
 gpu_channel* gpu_channel_open(gpu_device* gpu);
@@ -123,6 +140,7 @@ struct gpu_clear_cmd_args
 
 void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args);
 void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 index);
+void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vertex_desc);
 void gpu_channel_set_texture_cmd(gpu_channel* channel, gpu_texture* texture, u32 index);
 void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32 index);
 void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline);

@@ -8,46 +8,48 @@
 #include "SDL.h"
 #include "SDL_syswm.h"
 
+namespace vx
+{
 namespace
 {
-static const char* imgui_get_clipboard(void*) { return SDL_GetClipboardText(); }
+const char* imgui_get_clipboard(void*) { return SDL_GetClipboardText(); }
 
-static void imgui_set_clipboard(void*, const char* text) { SDL_SetClipboardText(text); }
+void imgui_set_clipboard(void*, const char* text) { SDL_SetClipboardText(text); }
 
-static struct
+struct
 {
     double time;
     bool mouse_pressed[3];
     float mouse_wheel;
 
-    vx::usize vertex_buffer_capacity = 64 KB;
-    vx::usize index_buffer_capacity = 16 KB;
+    usize vertex_buffer_capacity = 64 KB;
+    usize index_buffer_capacity = 16 KB;
 
-    vx::gpu_buffer* vertex_buffer;
-    vx::gpu_buffer* index_buffer;
-    vx::gpu_buffer* constants_buffer;
-    vx::gpu_vertex_desc* vertex_desc;
-    vx::gpu_texture* font_texture;
-    vx::gpu_sampler* font_sampler;
+    gpu_buffer* vertex_buffer;
+    gpu_buffer* index_buffer;
+    gpu_buffer* constants_buffer;
+    gpu_vertex_desc* vertex_desc;
+    gpu_texture* font_texture;
+    gpu_sampler* font_sampler;
 
-    vx::gpu_shader* vertex_shader;
-    vx::gpu_shader* fragment_shader;
-    vx::gpu_pipeline* pipeline;
+    gpu_shader* vertex_shader;
+    gpu_shader* fragment_shader;
+    gpu_pipeline* pipeline;
 } imgui_ctx;
 
 struct imgui_userdata
 {
-    vx::platform* platform;
-    vx::gpu_channel* channel;
+    platform* platform;
+    gpu_channel* channel;
 };
 
-static void imgui_render_draw_lists(ImDrawData* draw_data)
+void imgui_render_draw_lists(ImDrawData* draw_data)
 {
     ImGuiIO& io = ImGui::GetIO();
     imgui_userdata* user = (imgui_userdata*)io.UserData;
-    vx::platform* platform = user->platform;
-    vx::gpu_device* gpu = platform->gpu;
-    vx::gpu_channel* channel = user->channel;
+    platform* platform = user->platform;
+    gpu_device* gpu = platform->gpu;
+    gpu_channel* channel = user->channel;
 
     //
     // Display scaling
@@ -75,13 +77,13 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
             {-1.0f, 1.0f, 0.0f, 1.0f},
         };
 
-        vx::gpu_buffer* constants_buffer = imgui_ctx.constants_buffer;
-        vx::gpu_buffer_update(
+        gpu_buffer* constants_buffer = imgui_ctx.constants_buffer;
+        gpu_buffer_update(
             gpu, constants_buffer, (void*)ortho_projection, sizeof(ortho_projection), 0);
 
-        vx::gpu_channel_set_pipeline_cmd(channel, imgui_ctx.pipeline);
-        vx::gpu_channel_set_texture_cmd(channel, imgui_ctx.font_texture, 0);
-        vx::gpu_channel_set_sampler_cmd(channel, imgui_ctx.font_sampler, 0);
+        gpu_channel_set_pipeline_cmd(channel, imgui_ctx.pipeline);
+        gpu_channel_set_texture_cmd(channel, imgui_ctx.font_texture, 0);
+        gpu_channel_set_sampler_cmd(channel, imgui_ctx.font_sampler, 0);
     }
 
     //
@@ -91,29 +93,30 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
     for (int list_index = 0; list_index < draw_data->CmdListsCount; ++list_index)
     {
         const ImDrawList* cmd_list = draw_data->CmdLists[list_index];
-        vx::u32 index_offset = 0;
+        u32 index_offset = 0;
 
         // Update buffers
 
-        vx::usize vertex_data_size = cmd_list->VtxBuffer.Size * sizeof(ImDrawVert);
-        vx::usize index_data_size = cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx);
+        usize vertex_data_size = cmd_list->VtxBuffer.Size * sizeof(ImDrawVert);
+        usize index_data_size = cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx);
 
         void* vertex_data = cmd_list->VtxBuffer.Data;
         void* index_data = cmd_list->IdxBuffer.Data;
 
         if (vertex_data_size > imgui_ctx.vertex_buffer_capacity ||
             index_data_size > imgui_ctx.index_buffer_capacity)
-            vx::fatal("TODO!");
+            fatal("TODO!");
 
-        vx::gpu_buffer* vertex_buffer = imgui_ctx.vertex_buffer;
-        vx::gpu_buffer* index_buffer = imgui_ctx.index_buffer;
-        vx::gpu_buffer* constants_buffer = imgui_ctx.constants_buffer;
+        gpu_buffer* vertex_buffer = imgui_ctx.vertex_buffer;
+        gpu_buffer* index_buffer = imgui_ctx.index_buffer;
+        gpu_buffer* constants_buffer = imgui_ctx.constants_buffer;
 
-        vx::gpu_buffer_update(gpu, vertex_buffer, vertex_data, vertex_data_size, 0);
-        vx::gpu_buffer_update(gpu, index_buffer, index_data, index_data_size, 0);
+        gpu_buffer_update(gpu, vertex_buffer, vertex_data, vertex_data_size, 0);
+        gpu_buffer_update(gpu, index_buffer, index_data, index_data_size, 0);
 
-        vx::gpu_channel_set_buffer_cmd(channel, vertex_buffer, 0);
-        vx::gpu_channel_set_buffer_cmd(channel, constants_buffer, 1);
+        gpu_channel_set_vertex_desc_cmd(channel, imgui_ctx.vertex_desc);
+        gpu_channel_set_buffer_cmd(channel, vertex_buffer, 0);
+        gpu_channel_set_buffer_cmd(channel, constants_buffer, 1);
 
         for (int cmd_index = 0; cmd_index < cmd_list->CmdBuffer.Size; ++cmd_index)
         {
@@ -125,21 +128,21 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
             {
                 // TODO(vinht): Bind draw_cmd->TextureId.
 
-                vx::u32 sx0, sy0, sx1, sy1;
-                sx0 = (vx::u32)draw_cmd->ClipRect.x;
-                sy0 = (vx::u32)draw_cmd->ClipRect.y;
-                sx1 = (vx::u32)draw_cmd->ClipRect.z;
-                sy1 = (vx::u32)draw_cmd->ClipRect.w;
-                vx::gpu_scissor_rect scissor_rect{sx0, sy0, sx1 - sx0, sy1 - sy0};
-                vx::gpu_channel_set_scissor_cmd(channel, &scissor_rect);
+                u32 sx0, sy0, sx1, sy1;
+                sx0 = (u32)draw_cmd->ClipRect.x;
+                sy0 = (u32)draw_cmd->ClipRect.y;
+                sx1 = (u32)draw_cmd->ClipRect.z;
+                sy1 = (u32)draw_cmd->ClipRect.w;
+                gpu_scissor_rect scissor_rect{sx0, fb_height - sy1, sx1 - sx0, sy1 - sy0};
+                gpu_channel_set_scissor_cmd(channel, &scissor_rect);
 
-                vx::gpu_channel_draw_indexed_primitives_cmd(
+                gpu_channel_draw_indexed_primitives_cmd(
                     channel,
-                    vx::gpu_primitive_type::triangle,
+                    gpu_primitive_type::triangle,
                     draw_cmd->ElemCount,
-                    vx::gpu_index_type::u16,
+                    gpu_index_type::u16,
                     index_buffer,
-                    index_offset * sizeof(vx::u16));
+                    index_offset * sizeof(u16));
             }
 
             index_offset += draw_cmd->ElemCount;
@@ -148,8 +151,6 @@ static void imgui_render_draw_lists(ImDrawData* draw_data)
 }
 }
 
-namespace vx
-{
 bool imgui_init(platform* platform)
 {
     SDL_Window* window = platform->window;
@@ -210,7 +211,12 @@ bool imgui_init(platform* platform)
         char* program_src;
         usize program_size;
 
+#if VX_GRAPHICS_API == VX_METAL
+        // TODO: copy metal shader resources
         program_src = read_whole_file("src/shaders/mtl/gui.metallib", &program_size);
+#elif VX_GRAPHICS_API == VX_OPENGL
+        program_src = read_whole_file("shaders/gl/gui.glsl", &program_size);
+#endif
 
         imgui_ctx.vertex_shader = gpu_shader_create(
             gpu, gpu_shader_type::vertex, program_src, program_size, "vertex_main");
@@ -226,8 +232,14 @@ bool imgui_init(platform* platform)
     //
 
     {
+        gpu_pipeline_options opts = {0};
+        opts.blend_enabled = true;
+        opts.culling_enabled = false;
+        opts.depth_test_enabled = false;
+        opts.scissor_test_enabled = true;
+
         imgui_ctx.pipeline =
-            gpu_pipeline_create(gpu, imgui_ctx.vertex_shader, imgui_ctx.fragment_shader);
+            gpu_pipeline_create(gpu, imgui_ctx.vertex_shader, imgui_ctx.fragment_shader, opts);
     }
 
     //
@@ -235,9 +247,12 @@ bool imgui_init(platform* platform)
     //
 
     {
-        imgui_ctx.vertex_buffer = gpu_buffer_create(gpu, imgui_ctx.vertex_buffer_capacity);
-        imgui_ctx.index_buffer = gpu_buffer_create(gpu, imgui_ctx.index_buffer_capacity);
-        imgui_ctx.constants_buffer = gpu_buffer_create(gpu, sizeof(float4x4));
+        imgui_ctx.vertex_buffer =
+            gpu_buffer_create(gpu, imgui_ctx.vertex_buffer_capacity, gpu_buffer_type::vertex);
+        imgui_ctx.index_buffer =
+            gpu_buffer_create(gpu, imgui_ctx.index_buffer_capacity, gpu_buffer_type::index);
+        imgui_ctx.constants_buffer =
+            gpu_buffer_create(gpu, sizeof(float4x4), gpu_buffer_type::constant);
     }
 
     //
@@ -250,7 +265,7 @@ bool imgui_init(platform* platform)
 
         pos_size = sizeof(float2);
         uv_size = sizeof(float2);
-        col_size = 4 * sizeof(u8);
+        col_size = 4u;
 
         attributes[0].format = gpu_vertex_format::float2;
         attributes[0].buffer_index = 0;
@@ -265,7 +280,7 @@ bool imgui_init(platform* platform)
         attributes[2].offset = pos_size + uv_size;
 
         imgui_ctx.vertex_desc = gpu_vertex_desc_create(
-            gpu, attributes, vx_countof(attributes), (vx::u32)(pos_size + uv_size + col_size));
+            gpu, attributes, vx_countof(attributes), (u32)(pos_size + uv_size + col_size));
     }
 
     //
