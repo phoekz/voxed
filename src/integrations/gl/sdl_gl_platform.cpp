@@ -194,6 +194,13 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
 
     SDL_Init(SDL_INIT_VIDEO);
 
+    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 4);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+
     sdl_window = SDL_CreateWindow(
         title,
         SDL_WINDOWPOS_CENTERED,
@@ -204,11 +211,6 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
 
     if (!sdl_window)
         fatal("SDL_CreateWindow failed with error: %s", SDL_GetError());
-
-    SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 4);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 
     sdl_gl_context = SDL_GL_CreateContext(sdl_window);
 
