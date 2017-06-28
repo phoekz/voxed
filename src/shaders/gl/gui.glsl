@@ -14,9 +14,9 @@ out vec4 v_frag_color;
 
 void main()
 {
-	v_frag_uv = a_uv;
-	v_frag_color = a_color;
-	gl_Position = u_projection * vec4(a_position.xy, 0, 1);
+    v_frag_uv = a_uv;
+    v_frag_color = a_color;
+    gl_Position = u_projection * vec4(a_position.xy, 0, 1);
 }
 
 #elif VX_SHADER == 1
@@ -30,7 +30,7 @@ out vec4 frag_color;
 
 void main()
 {
-	frag_color = v_frag_color * texture(u_texture, v_frag_uv.st);
+    frag_color = v_frag_color * texture(u_texture, v_frag_uv.st);
 }
 
 #endif

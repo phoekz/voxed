@@ -49,7 +49,7 @@ struct gl_pipeline
 
 static_assert(sizeof(gl_pipeline) == sizeof(uptr), "gl_pipeline is not the size of a pointer");
 
-struct gl_attribute
+struct gl_vertex_attribute
 {
     GLint index;
     GLint elements;
@@ -58,9 +58,9 @@ struct gl_attribute
     const void* offset;
 };
 
-struct gl_descriptor
+struct gl_vertex_descriptor
 {
-    gl_attribute* attributes;
+    gl_vertex_attribute* attributes;
     u32 attribute_count;
     u32 stride;
 };
@@ -89,7 +89,7 @@ GLint gpu_convert_enum(gpu_buffer_type type)
         case gpu_buffer_type::constant:
             return GL_UNIFORM_BUFFER;
         default:
-            assert(!"Invalid gpu_buffer_type");
+            fatal("Invalid gpu_buffer_type value: %i", int(type));
             return 0;
     }
 }
@@ -103,7 +103,7 @@ GLint gpu_convert_enum(gpu_index_type type)
         case gpu_index_type::u32:
             return GL_UNSIGNED_INT;
         default:
-            assert(!"Invalid gpu_index_type");
+            fatal("Invalid gpu_index_type value: %i", int(type));
             return 0;
     }
 }
@@ -125,7 +125,7 @@ GLint gpu_convert_enum(gpu_shader_type type)
         case gpu_shader_type::fragment:
             return GL_FRAGMENT_SHADER;
         default:
-            assert(!"Invalid gpu_shader_type");
+            fatal("Invalid gpu_shader_type value: %i", int(type));
             return 0;
     }
 }
@@ -145,7 +145,7 @@ GLint gpu_convert_enum(gpu_primitive_type type)
         case gpu_primitive_type::triangle_strip:
             return GL_TRIANGLE_STRIP;
         default:
-            assert(!"Invalid gpu_primitive_type");
+            fatal("Invalid gpu_primitive_type value: %i", int(type));
             return 0;
     }
 }
@@ -238,7 +238,7 @@ gpu_buffer* gpu_buffer_create(gpu_device* /*gpu*/, usize size, gpu_buffer_type t
     gl_buffer buffer = {0};
     glGenBuffers(1, &buffer.object);
     if (buffer.object == 0)
-        return nullptr;
+        fatal("Failed to create buffer!");
 
     buffer.target = gpu_convert_enum(type);
 
@@ -283,6 +283,8 @@ gpu_texture* gpu_texture_create(
 {
     gl_texture texture = {0};
     glGenTextures(1, &texture.object);
+    if (!texture.object)
+        fatal("Failed to create texture!");
 
     // TODO: texture type
     texture.target = GL_TEXTURE_2D;
@@ -343,7 +345,8 @@ gpu_vertex_desc* gpu_vertex_desc_create(
     u32 attribute_count,
     u32 vertex_stride)
 {
-    gl_attribute* gl_attributes = (gl_attribute*)std::calloc(attribute_count, sizeof(gl_attribute));
+    gl_vertex_attribute* gl_attributes =
+        (gl_vertex_attribute*)std::calloc(attribute_count, sizeof(gl_vertex_attribute));
     uptr offset = 0u;
     for (u32 i = 0u; i < attribute_count; i++)
     {
@@ -417,7 +420,8 @@ gpu_vertex_desc* gpu_vertex_desc_create(
         offset += element_size;
     }
 
-    gl_descriptor* descriptor = (gl_descriptor*)std::calloc(1, sizeof(gl_descriptor));
+    gl_vertex_descriptor* descriptor =
+        (gl_vertex_descriptor*)std::calloc(1, sizeof(gl_vertex_descriptor));
     descriptor->attributes = gl_attributes;
     descriptor->attribute_count = attribute_count;
     descriptor->stride = vertex_stride;
@@ -427,7 +431,7 @@ gpu_vertex_desc* gpu_vertex_desc_create(
 
 void gpu_vertex_desc_destroy(gpu_device* /*gpu*/, gpu_vertex_desc* vertex_desc)
 {
-    gl_descriptor* descriptor = (gl_descriptor*)vertex_desc;
+    gl_vertex_descriptor* descriptor = (gl_vertex_descriptor*)vertex_desc;
     std::free(descriptor->attributes);
     std::free(descriptor);
 }
@@ -444,6 +448,9 @@ gpu_shader* gpu_shader_create(
 
     gl_shader shader = {0};
     shader.object = glCreateShader(gpu_convert_enum(type));
+    if (!shader.object)
+        fatal("Failed to create shader!");
+
     glShaderSource(shader.object, vx_countof(defs), defs, 0);
     glCompileShader(shader.object);
 
@@ -487,7 +494,7 @@ gpu_pipeline* gpu_pipeline_create(
     pipeline.program = glCreateProgram();
 
     if (!pipeline.program)
-        fatal("Program creation failed");
+        fatal("Failed to create shader program!");
 
     glAttachShader(pipeline.program, vertex_shader.object);
     glAttachShader(pipeline.program, fragment_shader.object);
@@ -552,13 +559,13 @@ void gpu_channel_set_buffer_cmd(gpu_channel* /*channel*/, gpu_buffer* buffer_han
 void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vertex_desc)
 {
     gl_device* device = (gl_device*)channel;
-    gl_descriptor* descriptor = (gl_descriptor*)vertex_desc;
+    gl_vertex_descriptor* descriptor = (gl_vertex_descriptor*)vertex_desc;
 
     glBindVertexArray(device->dummy_vao);
 
     for (u32 i = 0u; i < descriptor->attribute_count; i++)
     {
-        const gl_attribute& attrib = descriptor->attributes[i];
+        const gl_vertex_attribute& attrib = descriptor->attributes[i];
         glEnableVertexAttribArray(attrib.index);
         glVertexAttribPointer(
             attrib.index,
@@ -636,7 +643,8 @@ void gpu_channel_draw_indexed_primitives_cmd(
     u32 index_byte_offset)
 {
     gl_buffer index_buffer = gpu_convert_handle(index_buffer_handle);
-    assert(index_buffer.target == GL_ELEMENT_ARRAY_BUFFER);
+    if (index_buffer.target != GL_ELEMENT_ARRAY_BUFFER)
+        fatal("The index buffer provided was not created as an index buffer!");
     glBindBuffer(index_buffer.target, index_buffer.object);
 
     glDrawElements(
