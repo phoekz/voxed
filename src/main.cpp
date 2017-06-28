@@ -551,9 +551,9 @@ bool voxel_app_init(voxel_app& vox_app)
     //
 
     {
-        vox_app.line_shader = compile_gl_shader_from_file("src/shaders/gl/line.glsl");
-        vox_app.solid_shader = compile_gl_shader_from_file("src/shaders/gl/solid.glsl");
-        vox_app.textured_shader = compile_gl_shader_from_file("src/shaders/gl/textured.glsl");
+        vox_app.line_shader = compile_gl_shader_from_file("shaders/gl/line.glsl");
+        vox_app.solid_shader = compile_gl_shader_from_file("shaders/gl/solid.glsl");
+        vox_app.textured_shader = compile_gl_shader_from_file("shaders/gl/textured.glsl");
     }
 
     return true;
@@ -818,9 +818,17 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
     //
 
     {
+        glEnable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glEnable(GL_FRAMEBUFFER_SRGB);
+
+        glDisable(GL_SCISSOR_TEST);
+
+        glClearColor(1, 1, 1, 1);
+        glClearDepth(1);
+        glClearStencil(0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         glFrontFace(GL_CCW);
         glDepthFunc(GL_LEQUAL);
@@ -1024,9 +1032,8 @@ int main(int /*argc*/, char** /*argv*/)
             vx::gpu_device* gpu = app.platform.gpu;
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
             vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 1.0f, 0};
-            vx::gpu_channel_clear_cmd(channel, &clear_args);
-            vx::imgui_render(&app.platform, channel);
             vx::voxel_app_render(app, voxel_app);
+            vx::imgui_render(&app.platform, channel);
             vx::gpu_channel_close(gpu, channel);
         }
 
