@@ -133,7 +133,7 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
                 sy0 = (u32)draw_cmd->ClipRect.y;
                 sx1 = (u32)draw_cmd->ClipRect.z;
                 sy1 = (u32)draw_cmd->ClipRect.w;
-                gpu_scissor_rect scissor_rect{sx0, fb_height - sy1, sx1 - sx0, sy1 - sy0};
+                gpu_scissor_rect scissor_rect{sx0, sy0, sx1 - sx0, sy1 - sy0};
                 gpu_channel_set_scissor_cmd(channel, &scissor_rect);
 
                 gpu_channel_draw_indexed_primitives_cmd(

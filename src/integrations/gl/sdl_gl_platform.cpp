@@ -70,6 +70,9 @@ struct gl_device
     SDL_GLContext context;
     GLuint dummy_vao;
 
+    int2 display_size;
+    float2 display_scale;
+
     gl_pipeline current_pipeline;
 };
 
@@ -190,10 +193,19 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     if (gl3wInit() == -1)
         fatal("gl3wInit failed");
 
+    int2 display_size;
+    int2 drawable_size;
+    SDL_GetWindowSize(sdl_window, &display_size.x, &display_size.y);
+    SDL_GL_GetDrawableSize(sdl_window, &drawable_size.x, &drawable_size.y);
+
     gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
     glCreateVertexArrays(1, &device->dummy_vao);
 
     device->context = sdl_gl_context;
+    device->display_size = display_size;
+    device->display_scale = float2(
+        display_size.x > 0 ? ((float)drawable_size.x / display_size.x) : 0.f,
+        display_size.y > 0 ? ((float)drawable_size.y / display_size.y) : 0.f);
 
     platform->window = sdl_window;
     platform->gpu = (gpu_device*)device;
@@ -524,17 +536,12 @@ void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 }
 
-void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer_handle, u32 /*index*/)
+void gpu_channel_set_buffer_cmd(gpu_channel* /*channel*/, gpu_buffer* buffer_handle, u32 index)
 {
-    gl_device* device = (gl_device*)channel;
     gl_buffer buffer = gpu_convert_handle(buffer_handle);
     if (buffer.target == GL_UNIFORM_BUFFER)
     {
-        glBindBufferBase(GL_UNIFORM_BUFFER, 0u, buffer.object);
-        GLuint current_program = device->current_pipeline.program;
-        // WTF, why doesn't the index work here?
-        GLuint block_index = glGetUniformBlockIndex(current_program, "Matrix");
-        glUniformBlockBinding(current_program, block_index, 0u);
+        glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer.object);
     }
     else
     {
@@ -590,16 +597,20 @@ void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline_h
     set_capability(GL_DEPTH_TEST, pipeline.depth_test_enabled);
     set_capability(GL_SCISSOR_TEST, pipeline.scissor_test_enabled);
 
-    // TODO: expose via the api
+    // TODO: these shouldn't be hardcoded here
     glBlendEquation(GL_FUNC_ADD);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(pipeline.program);
 }
 
-void gpu_channel_set_scissor_cmd(gpu_channel* /*channel*/, gpu_scissor_rect* rect)
+void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
 {
-    glScissor(GLint(rect->x), GLint(rect->y), GLint(rect->w), GLint(rect->h));
+    gl_device* device = (gl_device*)channel;
+    // The OpenGL screen coordinates are flipped w.r.t. to the y-axis
+    // y-zero is at the top of the screen
+    int fb_height = int(device->display_size.y * device->display_scale.y);
+    glScissor(GLint(rect->x), fb_height - int(rect->y + rect->h), GLint(rect->w), GLint(rect->h));
 }
 
 void gpu_channel_set_viewport_cmd(gpu_channel* /*channel*/, gpu_viewport* viewport)
