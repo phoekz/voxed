@@ -27,6 +27,14 @@ struct gl_texture
 
 static_assert(sizeof(gl_texture) == sizeof(uptr), "gl_texture is not the size of a pointer");
 
+struct gl_sampler
+{
+    GLuint object;
+    GLuint padding;
+};
+
+static_assert(sizeof(gl_sampler) == sizeof(uptr), "gl_sampler is not the size of a pointer");
+
 struct gl_shader
 {
     GLuint object;
@@ -112,9 +120,25 @@ gl_buffer gpu_convert_handle(gpu_buffer* buffer) { return (gl_buffer&)buffer; }
 
 gl_texture gpu_convert_handle(gpu_texture* texture) { return (gl_texture&)texture; }
 
+gl_sampler gpu_convert_handle(gpu_sampler* sampler) { return (gl_sampler&)sampler; }
+
 gl_shader gpu_convert_handle(gpu_shader* shader) { return (gl_shader&)shader; }
 
 gl_pipeline gpu_convert_handle(gpu_pipeline* pipeline) { return (gl_pipeline&)pipeline; }
+
+GLint gpu_convert_enum(gpu_filter_mode mode)
+{
+    switch (mode)
+    {
+        case gpu_filter_mode::nearest:
+            return GL_NEAREST;
+        case gpu_filter_mode::linear:
+            return GL_LINEAR;
+        default:
+            fatal("Invalid gpu_filter_mode value: %i", int(mode));
+            return 0;
+    }
+}
 
 GLint gpu_convert_enum(gpu_shader_type type)
 {
@@ -290,8 +314,6 @@ gpu_texture* gpu_texture_create(
     texture.target = GL_TEXTURE_2D;
     glBindTexture(texture.target, texture.object);
 
-    glTexParameteri(texture.target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(texture.target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
     GLint px_format = 0;
@@ -321,22 +343,27 @@ void gpu_texture_destroy(gpu_device* /*gpu*/, gpu_texture* texture_handle)
 }
 
 gpu_sampler* gpu_sampler_create(
-    gpu_device* gpu,
+    gpu_device* /*gpu*/,
     gpu_filter_mode min,
     gpu_filter_mode mag,
-    gpu_filter_mode mip)
+    gpu_filter_mode /*mip*/)
 {
-    (void)gpu;
-    (void)min;
-    (void)mag;
-    (void)mip;
-    return nullptr;
+    gl_sampler sampler = {0};
+    glGenSamplers(1, &sampler.object);
+    if (!sampler.object)
+        fatal("Sampler creation failed!");
+
+    glSamplerParameteri(sampler.object, GL_TEXTURE_MAG_FILTER, gpu_convert_enum(mag));
+    glSamplerParameteri(sampler.object, GL_TEXTURE_MIN_FILTER, gpu_convert_enum(min));
+    // TODO: mip map?
+
+    return (gpu_sampler*)(*(uptr*)&sampler);
 }
 
-void gpu_sampler_destroy(gpu_device* gpu, gpu_sampler* sampler)
+void gpu_sampler_destroy(gpu_device* /*gpu*/, gpu_sampler* sampler_handle)
 {
-    (void)gpu;
-    (void)sampler;
+    gl_sampler sampler = gpu_convert_handle(sampler_handle);
+    glDeleteSamplers(1, &sampler.object);
 }
 
 gpu_vertex_desc* gpu_vertex_desc_create(
@@ -584,11 +611,10 @@ void gpu_channel_set_texture_cmd(gpu_channel* /*channel*/, gpu_texture* texture_
     glUniform1i(GLint(index), 0);
 }
 
-void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32 index)
+void gpu_channel_set_sampler_cmd(gpu_channel* /*channel*/, gpu_sampler* sampler_handle, u32 index)
 {
-    (void)channel;
-    (void)sampler;
-    (void)index;
+    gl_sampler sampler = gpu_convert_handle(sampler_handle);
+    glBindSampler(index, sampler.object);
 }
 
 void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline_handle)
