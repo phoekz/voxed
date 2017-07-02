@@ -104,12 +104,8 @@ struct voxel_app
     struct
     {
         GLuint vbo{0u}, ibo{0u}, vao{0u};
-    } wire_cube, solid_cube, quad;
-    struct
-    {
-        GLuint vbo{0u}, vao{0u};
-        u32 vertex_count;
-    } voxel_grid_lines;
+        u32 vertex_count, index_count;
+    } wire_cube, solid_cube, quad, voxel_grid_lines;
     struct
     {
         GLuint tex{0u};
@@ -262,7 +258,7 @@ float3 hue(float h)
 
 float3 hsv_to_rgb(float3 hsv) { return float3(((hue(hsv.x) - 1.f) * hsv.y + 1.f) * hsv.z); }
 
-bool voxel_app_init(voxel_app& vox_app)
+bool voxel_app_init(platform* platform, voxel_app& vox_app)
 {
     //
     // voxel grid
@@ -318,6 +314,8 @@ bool voxel_app_init(voxel_app& vox_app)
         vox_app.wire_cube.vao = vao;
         vox_app.wire_cube.vbo = vbo;
         vox_app.wire_cube.ibo = ibo;
+        vox_app.wire_cube.vertex_count = vx_countof(corners);
+        vox_app.wire_cube.index_count = 2 * vx_countof(lines);
     }
 
     //
@@ -398,6 +396,8 @@ bool voxel_app_init(voxel_app& vox_app)
         vox_app.solid_cube.vao = vao;
         vox_app.solid_cube.vbo = vbo;
         vox_app.solid_cube.ibo = ibo;
+        vox_app.solid_cube.vertex_count = vx_countof(verts);
+        vox_app.solid_cube.index_count = 3 * vx_countof(tris);
     }
 
     //
@@ -405,7 +405,7 @@ bool voxel_app_init(voxel_app& vox_app)
     //
 
     {
-        GLuint vbo, vao;
+        GLuint vao, vbo, ibo;
         float3 mn{-1.0f}, mx{+1.0f};
         float3 scene_extents = extents(vox_app.scene_bounds);
         float3 voxel_extents = scene_extents / (float)VX_GRID_SIZE;
@@ -415,34 +415,45 @@ bool voxel_app_init(voxel_app& vox_app)
         // end). Number of grid lines is grid size + 1.
         u32 vertex_count = 2 * 2 * (VX_GRID_SIZE + 1);
         usize vertex_size = vertex_count * sizeof(float3);
+        usize index_size = vertex_count * sizeof(int2);
         float3* vertices = (float3*)malloc(vertex_size);
+        int2* lines = (int2*)malloc(index_size);
         float3* vptr = vertices;
+        int2* lptr = lines;
         for (int i = 0; i < VX_GRID_SIZE + 1; i++)
         {
             *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mn.z};
             *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mx.z};
+            *lptr++ = int2(2 * (lptr - lines), 2 * (lptr - lines) + 1);
         }
         for (int i = 0; i < VX_GRID_SIZE + 1; i++)
         {
             *vptr++ = float3{mn.x, 0.0f, mn.z + i * voxel_extents.z};
             *vptr++ = float3{mx.x, 0.0f, mn.z + i * voxel_extents.z};
+            *lptr++ = int2(2 * (lptr - lines), 2 * (lptr - lines) + 1);
         }
 
         glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ibo);
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
 
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, vertex_size, vertices, GL_STATIC_DRAW);
 
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_size, lines, GL_STATIC_DRAW);
+
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
 
         free(vertices);
 
-        vox_app.voxel_grid_lines.vbo = vbo;
         vox_app.voxel_grid_lines.vao = vao;
+        vox_app.voxel_grid_lines.vbo = vbo;
+        vox_app.voxel_grid_lines.ibo = ibo;
         vox_app.voxel_grid_lines.vertex_count = vertex_count;
+        vox_app.voxel_grid_lines.index_count = vertex_count;
     }
 
     //
@@ -485,6 +496,8 @@ bool voxel_app_init(voxel_app& vox_app)
         vox_app.quad.vao = vao;
         vox_app.quad.vbo = vbo;
         vox_app.quad.ibo = ibo;
+        vox_app.quad.vertex_count = vx_countof(verts);
+        vox_app.quad.index_count = 3 * vx_countof(tris);
     }
 
     //
@@ -773,7 +786,7 @@ void render_wire_cube(const voxel_app& vox_app, const float3& color, const float
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
     glBindVertexArray(vox_app.wire_cube.vao);
-    glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_LINES, vox_app.wire_cube.index_count, GL_UNSIGNED_INT, 0);
 }
 
 void render_solid_cube(const voxel_app& vox_app, const float3& color, const float4x4& model_matrix)
@@ -783,7 +796,7 @@ void render_solid_cube(const voxel_app& vox_app, const float3& color, const floa
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
     glBindVertexArray(vox_app.solid_cube.vao);
-    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, vox_app.solid_cube.index_count, GL_UNSIGNED_INT, 0);
 }
 
 void render_voxel_grid_lines(
@@ -796,7 +809,7 @@ void render_voxel_grid_lines(
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
     glBindVertexArray(vox_app.voxel_grid_lines.vao);
-    glDrawArrays(GL_LINES, 0, vox_app.voxel_grid_lines.vertex_count);
+    glDrawElements(GL_LINES, vox_app.voxel_grid_lines.index_count, GL_UNSIGNED_INT, 0);
 }
 
 void render_textured_quad(const voxel_app& vox_app, GLuint texture, const float4x4& model_matrix)
@@ -808,7 +821,7 @@ void render_textured_quad(const voxel_app& vox_app, GLuint texture, const float4
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
     glBindVertexArray(vox_app.quad.vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, vox_app.quad.index_count, GL_UNSIGNED_INT, 0);
 }
 
 void voxel_app_render(const app&, const voxel_app& vox_app)
@@ -944,10 +957,7 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
 
 void voxel_app_shutdown(voxel_app* vox_app)
 {
-    glDeleteProgram(vox_app->line_shader);
-    glDeleteProgram(vox_app->solid_shader);
-    glDeleteBuffers(1, &vox_app->wire_cube.vbo);
-    glDeleteVertexArrays(1, &vox_app->wire_cube.vao);
+    // TODO(vinht): Free GPU resources.
 }
 }
 }
@@ -966,7 +976,7 @@ int main(int /*argc*/, char** /*argv*/)
     if (!vx::imgui_init(&app.platform))
         vx::fatal("ImGui initialization failed");
 
-    if (!vx::voxel_app_init(voxel_app))
+    if (!vx::voxel_app_init(&app.platform, voxel_app))
         vx::fatal("Voxel app initialization failed");
 
     //
