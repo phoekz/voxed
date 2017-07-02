@@ -821,7 +821,6 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
         glEnable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
-        glEnable(GL_FRAMEBUFFER_SRGB);
 
         glDisable(GL_SCISSOR_TEST);
 

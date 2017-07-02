@@ -228,6 +228,8 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
     glCreateVertexArrays(1, &device->dummy_vao);
 
+    glEnable(GL_FRAMEBUFFER_SRGB);
+
     device->context = sdl_gl_context;
     device->display_size = display_size;
     device->display_scale = float2(
