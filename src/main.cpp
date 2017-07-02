@@ -101,11 +101,15 @@ struct voxel_leaf
 
 struct voxel_app
 {
-    struct
+    struct mesh
     {
         GLuint vbo{0u}, ibo{0u}, vao{0u};
         u32 vertex_count, index_count;
-    } wire_cube, solid_cube, quad, voxel_grid_lines;
+    };
+
+    mesh wire_cube, solid_cube, quad;
+    mesh voxel_grid_rulers[axis_plane_count];
+
     struct
     {
         GLuint tex{0u};
@@ -404,56 +408,55 @@ bool voxel_app_init(platform* platform, voxel_app& vox_app)
     // voxel grid lines
     //
 
+    for (int axis_plane = 0; axis_plane < axis_plane_count; axis_plane++)
     {
-        GLuint vao, vbo, ibo;
-        float3 mn{-1.0f}, mx{+1.0f};
-        float3 scene_extents = extents(vox_app.scene_bounds);
-        float3 voxel_extents = scene_extents / (float)VX_GRID_SIZE;
+        voxel_app::mesh* mesh = &vox_app.voxel_grid_rulers[axis_plane];
 
-        // The grid is constructed on xz-plane with the grid pointing up
-        // towards +y. Two sets (horizontal & vertical) of line caps (begin &
-        // end). Number of grid lines is grid size + 1.
+        // Two sets (horizontal & vertical) of line caps (begin & end). Number
+        // of grid lines is grid size + 1.
         u32 vertex_count = 2 * 2 * (VX_GRID_SIZE + 1);
+        mesh->vertex_count = mesh->index_count = vertex_count;
         usize vertex_size = vertex_count * sizeof(float3);
         usize index_size = vertex_count * sizeof(int2);
         float3* vertices = (float3*)malloc(vertex_size);
-        int2* lines = (int2*)malloc(index_size);
+        int2* indices = (int2*)malloc(index_size);
         float3* vptr = vertices;
-        int2* lptr = lines;
-        for (int i = 0; i < VX_GRID_SIZE + 1; i++)
+        int2* iptr = indices;
+
+        for (int i = 0; i < 2 * (VX_GRID_SIZE + 1); i++)
         {
-            *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mn.z};
-            *vptr++ = float3{mn.x + i * voxel_extents.x, 0.0f, mx.z};
-            *lptr++ = int2(2 * (lptr - lines), 2 * (lptr - lines) + 1);
-        }
-        for (int i = 0; i < VX_GRID_SIZE + 1; i++)
-        {
-            *vptr++ = float3{mn.x, 0.0f, mn.z + i * voxel_extents.z};
-            *vptr++ = float3{mx.x, 0.0f, mn.z + i * voxel_extents.z};
-            *lptr++ = int2(2 * (lptr - lines), 2 * (lptr - lines) + 1);
+            int line_index = i >> 1;
+            float step = -1.0f + line_index * vox_app.voxel_extents[axis_plane];
+            float3 point_a, point_b;
+            point_a[axis_plane] = -1.0f, point_b[axis_plane] = +1.0f;
+            point_a[(axis_plane + 1) % 3] = point_b[(axis_plane + 1) % 3] = step;
+            point_a[(axis_plane + 2) % 3] = point_b[(axis_plane + 2) % 3] = 0.0f;
+            if (i & 1)
+            {
+                std::swap(point_a[axis_plane], point_a[(axis_plane + 1) % 3]);
+                std::swap(point_b[axis_plane], point_b[(axis_plane + 1) % 3]);
+            }
+            *vptr++ = point_a, *vptr++ = point_b;
+            *iptr++ = int2(2 * i, 2 * i + 1);
         }
 
-        glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ibo);
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
+        glGenVertexArrays(1, &mesh->vao);
+        glBindVertexArray(mesh->vao);
 
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glGenBuffers(1, &mesh->vbo);
+        glGenBuffers(1, &mesh->ibo);
+
+        glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
         glBufferData(GL_ARRAY_BUFFER, vertex_size, vertices, GL_STATIC_DRAW);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_size, lines, GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_size, indices, GL_STATIC_DRAW);
 
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
 
         free(vertices);
-
-        vox_app.voxel_grid_lines.vao = vao;
-        vox_app.voxel_grid_lines.vbo = vbo;
-        vox_app.voxel_grid_lines.ibo = ibo;
-        vox_app.voxel_grid_lines.vertex_count = vertex_count;
-        vox_app.voxel_grid_lines.index_count = vertex_count;
+        free(indices);
     }
 
     //
@@ -674,31 +677,33 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
 
         // voxel rulers
 
-        for (int i = 0; i < 3; i++)
+        for (int axis = 0; axis < 3; axis++)
         {
             // TODO(vinht): Remove hard coded planes.
 
+            // NOTE(vinht): Having a tiny extent in the third dimension
+            // improves numerical precision in the ray-test. Remapping from
+            // intersection point to voxel grid can be done more robustly (no
+            // need to handle negative zeroes).
+            const float tiny_extent = 1.0f / (1 << 16);
             float t;
-            float3 mn{-1.f}, mx{+1.f};
-            mx[i] = -1.f;
+            float3 mn, mx;
+            mn[axis] = mn[(axis + 1) % 3] = -1.0f;
+            mx[axis] = mx[(axis + 1) % 3] = +1.0f;
+            mn[(axis + 2) % 3] = -tiny_extent;
+            mx[(axis + 2) % 3] = +tiny_extent;
 
             if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < vox_app.intersect.t)
             {
                 vox_app.intersect.t = t;
                 vox_app.intersect.position = ray.origin + ray.direction * t;
-
-                int3 v = (int3)glm::floor(remap_range(
+                vox_app.intersect.voxel_coords = (int3)glm::floor(remap_range(
                     vox_app.intersect.position,
                     vox_app.scene_bounds.min,
                     vox_app.scene_bounds.max,
                     float3{0.f},
                     float3{VX_GRID_SIZE}));
-
-                v[i] = -1;
-
-                vox_app.intersect.voxel_coords = v;
                 vox_app.intersect.normal = float3{0.f};
-                vox_app.intersect.normal[i] = 1.f;
             }
         }
 
@@ -750,20 +755,13 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
             }
             else
             {
-                int3 proposed_voxel =
-                    vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
-                int3 new_voxel = glm::clamp(proposed_voxel, int3{0}, int3{VX_GRID_SIZE - 1});
+                int3 p = vox_app.intersect.voxel_coords + (int3)vox_app.intersect.normal;
 
-                if (new_voxel != vox_app.intersect.voxel_coords)
+                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
+                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
-                    fprintf(
-                        stdout,
-                        "Inserted voxel at %d %d %d\n",
-                        new_voxel.x,
-                        new_voxel.y,
-                        new_voxel.z);
-                    i32 i = new_voxel.x + new_voxel.y * VX_GRID_SIZE +
-                            new_voxel.z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    fprintf(stdout, "Inserted voxel at %d %d %d\n", p.x, p.y, p.z);
+                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
                     vox_app.voxel_grid[i].flags |= voxel_flag_solid;
                     vox_app.voxel_grid[i].color = vox_app.color_wheel_rgb;
                 }
@@ -771,9 +769,9 @@ void voxel_app_update(const app& app, voxel_app& vox_app)
                     fprintf(
                         stdout,
                         "New voxel at %d %d %d would go outside the boundary! \n",
-                        proposed_voxel.x,
-                        proposed_voxel.y,
-                        proposed_voxel.z);
+                        p.x,
+                        p.y,
+                        p.z);
             }
         }
     }
@@ -808,8 +806,12 @@ void render_voxel_grid_lines(
     glUniform3f(2, color.r, color.g, color.b);
     glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
-    glBindVertexArray(vox_app.voxel_grid_lines.vao);
-    glDrawElements(GL_LINES, vox_app.voxel_grid_lines.index_count, GL_UNSIGNED_INT, 0);
+    for (int i = 0; i < vx_countof(vox_app.voxel_grid_rulers); i++)
+    {
+        const voxel_app::mesh* mesh = &vox_app.voxel_grid_rulers[i];
+        glBindVertexArray(mesh->vao);
+        glDrawElements(GL_LINES, mesh->index_count, GL_UNSIGNED_INT, 0);
+    }
 }
 
 void render_textured_quad(const voxel_app& vox_app, GLuint texture, const float4x4& model_matrix)
@@ -938,18 +940,7 @@ void voxel_app_render(const app&, const voxel_app& vox_app)
 
     {
         glDepthMask(GL_FALSE);
-        render_voxel_grid_lines(
-            vox_app, vox_app.grid_color, glm::translate(float4x4{}, float3{0.0f, -1.0f, 0.0f}));
-        render_voxel_grid_lines(
-            vox_app,
-            vox_app.grid_color,
-            glm::translate(float4x4{}, float3{-1.0f, 0.0f, 0.0f}) *
-                glm::rotate(float4x4{}, (float)M_PI / 2.0f, float3{0.0f, 0.0f, 1.0f}));
-        render_voxel_grid_lines(
-            vox_app,
-            vox_app.grid_color,
-            glm::translate(float4x4{}, float3{0.0f, 0.0f, -1.0f}) *
-                glm::rotate(float4x4{}, (float)M_PI / 2.0f, float3{1.0f, 0.0f, 0.0f}));
+        render_voxel_grid_lines(vox_app, vox_app.grid_color, float4x4{});
         render_wire_cube(vox_app, vox_app.cube_color, float4x4{});
         glDepthMask(GL_TRUE);
     }
