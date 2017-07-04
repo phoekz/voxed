@@ -50,6 +50,7 @@ project (project_name)
         "src/platform/**",
         "src/common/**",
         "src/main.cpp",
+        "src/voxed.*"
     }
 
     includedirs {
