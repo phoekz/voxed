@@ -226,7 +226,7 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     SDL_GL_GetDrawableSize(sdl_window, &drawable_size.x, &drawable_size.y);
 
     gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
-    glCreateVertexArrays(1, &device->dummy_vao);
+    glGenVertexArrays(1, &device->dummy_vao);
 
     glEnable(GL_FRAMEBUFFER_SRGB);
 
