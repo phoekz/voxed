@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aliases.h"
+#include "gtx/norm.hpp"
 
 namespace vx
 {
@@ -49,16 +50,18 @@ struct ray
 
 struct plane
 {
-    plane(const float3& p0, const float3& p1, const float3& p2)
-        : point(p0), normal(glm::normalize(glm::cross(p1 - p0, p2 - p0)))
-    {
-    }
-
-    plane(const float3& p, const float3& n) : point(p), normal(n) {}
-
     float3 point;
     float3 normal;
 };
+
+inline plane plane_from_points(const float3& p0, const float3& p1, const float3& p2)
+{
+    plane p;
+    p.point = p0;
+    p.normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
+
+    return p;
+}
 
 template<typename VecType>
 struct bounds

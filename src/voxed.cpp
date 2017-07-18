@@ -9,6 +9,8 @@
 #include "glm.hpp"
 #include "gtc/matrix_transform.hpp"
 
+#include <vector>
+
 #undef near
 #undef far
 
@@ -250,6 +252,8 @@ struct voxed_state
     bool color_wheel_changed;
     float3 color_wheel_hit_pos;
     float3 color_wheel_rgb;
+
+    voxed_mode mode;
 };
 
 voxed_state* voxed_create()
@@ -401,55 +405,54 @@ voxed_state* voxed_create()
     // voxel grid lines
     //
 
-    for (int axis_plane = 0; axis_plane < axis_plane_count; axis_plane++)
+    struct line
     {
-        voxed_state::mesh* mesh = &state->voxel_grid_rulers[axis_plane];
+        float3 start{0.f};
+        float3 end{0.f};
+    };
 
-        // Two sets (horizontal & vertical) of line caps (begin & end). Number
-        // of grid lines is grid size + 1.
-        u32 vertex_count = 2 * 2 * (VX_GRID_SIZE + 1);
-        mesh->vertex_count = mesh->index_count = vertex_count;
-        usize vertex_size = vertex_count * sizeof(float3);
-        usize index_size = vertex_count * sizeof(int2);
-        float3* vertices = (float3*)std::malloc(vertex_size);
-        int2* indices = (int2*)std::malloc(index_size);
-        float3* vptr = vertices;
-        int2* iptr = indices;
+    // assume the extents are the same in all directions
+    const float voxel_extent = state->voxel_extents.x;
+    const int line_count = (VX_GRID_SIZE / 2) + 1;
+    const float line_length = (VX_GRID_SIZE / 2) * voxel_extent;
 
-        for (int i = 0; i < 2 * (VX_GRID_SIZE + 1); i++)
+    std::vector<line> grid_lines;
+    grid_lines.reserve(axis_plane_count * 2 * line_count);
+
+    for (int i = 0; i < axis_plane_count; i++)
+    {
+        for (int j = 0; j < line_count; j++)
         {
-            int line_index = i >> 1;
-            float step = -1.0f + line_index * state->voxel_extents[axis_plane];
-            float3 point_a, point_b;
-            point_a[axis_plane] = -1.0f, point_b[axis_plane] = +1.0f;
-            point_a[(axis_plane + 1) % 3] = point_b[(axis_plane + 1) % 3] = step;
-            point_a[(axis_plane + 2) % 3] = point_b[(axis_plane + 2) % 3] = 0.0f;
-            if (i & 1)
-            {
-                std::swap(point_a[axis_plane], point_a[(axis_plane + 1) % 3]);
-                std::swap(point_b[axis_plane], point_b[(axis_plane + 1) % 3]);
-            }
-            *vptr++ = point_a, *vptr++ = point_b;
-            *iptr++ = int2(2 * i, 2 * i + 1);
+            line l1, l2;
+            l1.start = float3(0.f);
+            l1.end = float3(0.f);
+            l1.start[(i + 1) % 3] = voxel_extent * j;
+            l1.end[(i + 1) % 3] = voxel_extent * j;
+            l1.end[i] = line_length;
+
+            grid_lines.push_back(l1);
+
+            l2.start[i] = voxel_extent * j;
+            l2.end[i] = voxel_extent * j;
+            l2.end[(i + 1) % 3] = line_length;
+
+            grid_lines.push_back(l2);
         }
 
-        glGenVertexArrays(1, &mesh->vao);
-        glBindVertexArray(mesh->vao);
+        auto& mesh = state->voxel_grid_rulers[i];
+        mesh.index_count = u32(grid_lines.size() * 2);
+        glGenVertexArrays(1, &mesh.vao);
+        glBindVertexArray(mesh.vao);
 
-        glGenBuffers(1, &mesh->vbo);
-        glGenBuffers(1, &mesh->ibo);
-
-        glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertex_size, vertices, GL_STATIC_DRAW);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_size, indices, GL_STATIC_DRAW);
+        glGenBuffers(1, &mesh.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+        glBufferData(
+            GL_ARRAY_BUFFER, sizeof(line) * grid_lines.size(), grid_lines.data(), GL_STATIC_DRAW);
 
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
 
-        std::free(vertices);
-        std::free(indices);
+        grid_lines.clear();
     }
 
     //
@@ -568,7 +571,9 @@ voxed_state* voxed_create()
     return state;
 }
 
-void voxed_update(const platform& platform, voxed_state* state, float dt)
+void voxed_set_mode(voxed_state* state, voxed_mode mode) { state->mode = mode; }
+
+void voxed_update(voxed_state* state, const platform& platform, float dt)
 {
     //
     // camera controls
@@ -760,17 +765,38 @@ void render_solid_cube(
 void render_voxel_grid_lines(
     const voxed_state* vox_app,
     const float3& color,
-    const float4x4& model_matrix)
+    const float4x4& grid_matrix)
 {
     glUseProgram(vox_app->line_shader);
     glUniform3f(2, color.r, color.g, color.b);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
 
-    for (int i = 0; i < vx_countof(vox_app->voxel_grid_rulers); i++)
+    float3 translations[3] = {float3(0.f), float3(0.f), float3(0.f)};
+
+    for (int i = 0; i < axis_plane_count; i++)
     {
+        float3 n(0.f);
+        // the following code pertains to right-handed coordinate systems
+        n[(i + 2) % 3] = 1.f;
+        float3 forward_dir = forward(vox_app->camera);
+
+        // if we're not facing the positive side of the plane, then we want to
+        // translate the grid ruler to the negative side of the plane
+        if (glm::dot(forward_dir, n) > 0.f)
+        {
+            const float plane_translation = -vox_app->voxel_extents.s * (VX_GRID_SIZE / 2);
+            translations[(i + 2) % 3][(i + 2) % 3] = plane_translation;
+            translations[(i + 1) % 3][(i + 2) % 3] = plane_translation;
+        }
+    }
+    for (int i = 0; i < axis_plane_count; i++)
+    {
+
+        float4x4 model_matrix = glm::translate(grid_matrix, translations[i]);
+        glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+
         const voxed_state::mesh& mesh = vox_app->voxel_grid_rulers[i];
         glBindVertexArray(mesh.vao);
-        glDrawElements(GL_LINES, mesh.index_count, GL_UNSIGNED_INT, 0);
+        glDrawArrays(GL_LINES, 0, mesh.index_count);
     }
 }
 

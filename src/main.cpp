@@ -104,7 +104,7 @@ int main(int /*argc*/, char** /*argv*/)
         // app
 
         {
-            vx::voxed_update(app.platform, voxed, app.time.delta);
+            vx::voxed_update(voxed, app.platform, app.time.delta);
         }
 
         // gui
