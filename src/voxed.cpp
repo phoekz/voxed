@@ -8,6 +8,7 @@
 
 #include "glm.hpp"
 #include "gtc/matrix_transform.hpp"
+#include "integrations/gl/gl.h"
 
 #include <vector>
 
@@ -118,13 +119,13 @@ ray generate_camera_ray(const platform& platform, const orbit_camera& camera)
     return ray;
 }
 
-GLuint compile_gl_shader_from_file(const char* file_path)
+u32 compile_gl_shader_from_file(const char* file_path)
 {
-    GLint status;
+    i32 status;
     char* shader_source = read_whole_file(file_path, nullptr);
-    GLuint vs_stage = glCreateShader(GL_VERTEX_SHADER);
-    GLuint fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
-    GLuint program = glCreateProgram();
+    u32 vs_stage = glCreateShader(GL_VERTEX_SHADER);
+    u32 fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
+    u32 program = glCreateProgram();
     char* vs_defs[] = {
         "#version 440 core\n", "#define VX_SHADER 0\n", shader_source,
     };
@@ -223,7 +224,7 @@ struct voxed_state
 {
     struct mesh
     {
-        GLuint vbo{0u}, ibo{0u}, vao{0u};
+        u32 vbo{0u}, ibo{0u}, vao{0u};
         u32 vertex_count, index_count;
     };
 
@@ -232,9 +233,9 @@ struct voxed_state
 
     struct
     {
-        GLuint tex{0u};
+        u32 tex{0u};
     } color_wheel;
-    GLuint line_shader{0u}, solid_shader{0u}, textured_shader{0u};
+    u32 line_shader{0u}, solid_shader{0u}, textured_shader{0u};
     float3 cube_color{0.1f, 0.1f, 0.1f};
     float3 grid_color{0.4f, 0.4f, 0.4f};
     float3 selection_color{0.05f, 0.05f, 0.05f};
@@ -283,7 +284,7 @@ voxed_state* voxed_create()
     //
 
     {
-        GLuint vao, vbo, ibo;
+        u32 vao, vbo, ibo;
         float3 mn{-1.0f}, mx{+1.0f};
 
         // clang-format off
@@ -324,7 +325,7 @@ voxed_state* voxed_create()
     //
 
     {
-        GLuint vao, vbo, ibo;
+        u32 vao, vbo, ibo;
         float3 mn{-1.0f}, mx{+1.0f};
 
         struct vertex
@@ -391,8 +392,7 @@ voxed_state* voxed_create()
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(
-            1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (const void*)sizeof(float3));
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (void*)sizeof(float3));
 
         state->solid_cube.vao = vao;
         state->solid_cube.vbo = vbo;
@@ -460,7 +460,7 @@ voxed_state* voxed_create()
     //
 
     {
-        GLuint vao, vbo, ibo;
+        u32 vao, vbo, ibo;
 
         struct vertex
         {
@@ -489,8 +489,7 @@ voxed_state* voxed_create()
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
         glEnableVertexAttribArray(1);
-        glVertexAttribPointer(
-            1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const void*)sizeof(float3));
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (void*)sizeof(float3));
 
         state->quad.vao = vao;
         state->quad.vbo = vbo;
@@ -541,7 +540,7 @@ voxed_state* voxed_create()
                 }
             }
 
-        GLuint tex;
+        u32 tex;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
@@ -743,7 +742,7 @@ void render_wire_cube(const voxed_state* vox_app, const float3& color, const flo
 {
     glUseProgram(vox_app->line_shader);
     glUniform3f(2, color.r, color.g, color.b);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
 
     glBindVertexArray(vox_app->wire_cube.vao);
     glDrawElements(GL_LINES, vox_app->wire_cube.index_count, GL_UNSIGNED_INT, 0);
@@ -756,7 +755,7 @@ void render_solid_cube(
 {
     glUseProgram(vox_app->solid_shader);
     glUniform3f(2, color.r, color.g, color.b);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
 
     glBindVertexArray(vox_app->solid_cube.vao);
     glDrawElements(GL_TRIANGLES, vox_app->solid_cube.index_count, GL_UNSIGNED_INT, 0);
@@ -792,7 +791,7 @@ void render_voxel_grid_lines(
     {
 
         float4x4 model_matrix = glm::translate(grid_matrix, translations[i]);
-        glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+        glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
 
         const voxed_state::mesh& mesh = vox_app->voxel_grid_rulers[i];
         glBindVertexArray(mesh.vao);
@@ -800,13 +799,13 @@ void render_voxel_grid_lines(
     }
 }
 
-void render_textured_quad(const voxed_state* vox_app, GLuint texture, const float4x4& model_matrix)
+void render_textured_quad(const voxed_state* vox_app, u32 texture, const float4x4& model_matrix)
 {
     glUseProgram(vox_app->textured_shader);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
     glUniform1i(2, 0);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (const GLfloat*)&model_matrix);
+    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
 
     glBindVertexArray(vox_app->quad.vao);
     glDrawElements(GL_TRIANGLES, vox_app->quad.index_count, GL_UNSIGNED_INT, 0);
@@ -840,11 +839,11 @@ void voxed_render(voxed_state* state)
     //
 
     {
-        GLuint shaders[] = {state->line_shader, state->solid_shader, state->textured_shader};
+        u32 shaders[] = {state->line_shader, state->solid_shader, state->textured_shader};
         for (int i = 0; i < vx_countof(shaders); i++)
         {
             glUseProgram(shaders[i]);
-            glUniformMatrix4fv(0, 1, GL_FALSE, (const GLfloat*)&state->camera.transform);
+            glUniformMatrix4fv(0, 1, GL_FALSE, (float*)&state->camera.transform);
         }
     }
 

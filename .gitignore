@@ -37,3 +37,4 @@ build/
 
 # Voxed-specific
 imgui.ini
+__pycache__

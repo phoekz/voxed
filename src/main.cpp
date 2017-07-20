@@ -6,7 +6,6 @@
 #include "integrations/imgui/imgui_sdl.h"
 #include "glm.hpp"
 #include "gtc/matrix_transform.hpp"
-#include "GL/gl3w.h"
 
 #include <algorithm>
 #define _USE_MATH_DEFINES
