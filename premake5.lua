@@ -31,13 +31,6 @@ group ("ext")
             path.join(ext_dir, "imgui-1.50/imgui_draw.cpp"),
             path.join(ext_dir, "imgui-1.50/*.h"),
         }
-    project ("gl3w")
-        kind ("StaticLib")
-        files {
-            path.join(ext_dir, "gl3w/**.c"),
-            path.join(ext_dir, "gl3w/**.h"),
-        }
-        includedirs { path.join(ext_dir, "gl3w/include") }
 
 group ("")
 
@@ -95,12 +88,11 @@ project (project_name)
         }
         includedirs {
             path.join(ext_dir, "SDL-2.0.4/include"),
-            path.join(ext_dir, "gl3w/include"),
         }
 
         libdirs { path.join(ext_dir, "SDL-2.0.4/bin/win64") }
         defines { "SDL_MAIN_HANDLED" }
-        links { "gl3w", "opengl32" }
+        links { "opengl32" }
         postbuildcommands { "{COPY} " .. path.join(os.getcwd(), ext_dir, "SDL-2.0.4/bin/win64/SDL2.dll") .. " %{cfg.targetdir}" }
 
         filter "files:**.glsl"

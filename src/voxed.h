@@ -2,8 +2,6 @@
 
 #include "platform/native_platform.h"
 
-#include "GL/gl3w.h"
-
 namespace vx
 {
 struct voxed_state;

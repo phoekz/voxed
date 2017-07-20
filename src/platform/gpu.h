@@ -17,7 +17,6 @@ enum class gpu_buffer_type
 {
     vertex,
     index,
-    shader_storage,
     constant,
 };
 

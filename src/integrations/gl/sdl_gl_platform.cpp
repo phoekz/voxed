@@ -3,7 +3,8 @@
 #include "common/macros.h"
 
 #include "SDL.h"
-#include "GL/gl3w.h"
+#define VX_GL_IMPLEMENTATION
+#include "gl.h"
 
 #include <cstdlib>
 
@@ -13,39 +14,39 @@ namespace
 {
 struct gl_buffer
 {
-    GLuint object;
-    GLenum target;
+    u32 object;
+    u32 target;
 };
 
 static_assert(sizeof(gl_buffer) == sizeof(uptr), "gl_buffer is not the size of a pointer");
 
 struct gl_texture
 {
-    GLuint object;
-    GLenum target;
+    u32 object;
+    u32 target;
 };
 
 static_assert(sizeof(gl_texture) == sizeof(uptr), "gl_texture is not the size of a pointer");
 
 struct gl_sampler
 {
-    GLuint object;
-    GLuint padding;
+    u32 object;
+    u32 padding;
 };
 
 static_assert(sizeof(gl_sampler) == sizeof(uptr), "gl_sampler is not the size of a pointer");
 
 struct gl_shader
 {
-    GLuint object;
-    GLuint padding;
+    u32 object;
+    u32 padding;
 };
 
 static_assert(sizeof(gl_shader) == sizeof(uptr), "gl_shader is not the size of a pointer");
 
 struct gl_pipeline
 {
-    GLuint program;
+    u32 program;
 
     bool depth_test_enabled;
     bool culling_enabled;
@@ -59,10 +60,10 @@ static_assert(sizeof(gl_pipeline) == sizeof(uptr), "gl_pipeline is not the size 
 
 struct gl_vertex_attribute
 {
-    GLint index;
-    GLint elements;
-    GLenum type;
-    GLboolean normalized;
+    i32 index;
+    i32 elements;
+    u32 type;
+    u8 normalized;
     const void* offset;
 };
 
@@ -76,7 +77,7 @@ struct gl_vertex_descriptor
 struct gl_device
 {
     SDL_GLContext context;
-    GLuint dummy_vao;
+    u32 dummy_vao;
 
     int2 display_size;
     float2 display_scale;
@@ -84,7 +85,7 @@ struct gl_device
     gl_pipeline current_pipeline;
 };
 
-GLint gpu_convert_enum(gpu_buffer_type type)
+i32 gpu_convert_enum(gpu_buffer_type type)
 {
     switch (type)
     {
@@ -92,8 +93,6 @@ GLint gpu_convert_enum(gpu_buffer_type type)
             return GL_ARRAY_BUFFER;
         case gpu_buffer_type::index:
             return GL_ELEMENT_ARRAY_BUFFER;
-        case gpu_buffer_type::shader_storage:
-            return GL_SHADER_STORAGE_BUFFER;
         case gpu_buffer_type::constant:
             return GL_UNIFORM_BUFFER;
         default:
@@ -102,7 +101,7 @@ GLint gpu_convert_enum(gpu_buffer_type type)
     }
 }
 
-GLint gpu_convert_enum(gpu_index_type type)
+i32 gpu_convert_enum(gpu_index_type type)
 {
     switch (type)
     {
@@ -126,7 +125,7 @@ gl_shader gpu_convert_handle(gpu_shader* shader) { return (gl_shader&)shader; }
 
 gl_pipeline gpu_convert_handle(gpu_pipeline* pipeline) { return (gl_pipeline&)pipeline; }
 
-GLint gpu_convert_enum(gpu_filter_mode mode)
+i32 gpu_convert_enum(gpu_filter_mode mode)
 {
     switch (mode)
     {
@@ -140,7 +139,7 @@ GLint gpu_convert_enum(gpu_filter_mode mode)
     }
 }
 
-GLint gpu_convert_enum(gpu_shader_type type)
+i32 gpu_convert_enum(gpu_shader_type type)
 {
     switch (type)
     {
@@ -154,14 +153,14 @@ GLint gpu_convert_enum(gpu_shader_type type)
     }
 }
 
-GLint gpu_convert_enum(gpu_primitive_type type)
+i32 gpu_convert_enum(gpu_primitive_type type)
 {
     switch (type)
     {
         case gpu_primitive_type::point:
-            return GL_POINT;
+            return GL_POINTS;
         case gpu_primitive_type::line:
-            return GL_LINE;
+            return GL_LINES;
         case gpu_primitive_type::line_strip:
             return GL_LINE_STRIP;
         case gpu_primitive_type::triangle:
@@ -174,7 +173,7 @@ GLint gpu_convert_enum(gpu_primitive_type type)
     }
 }
 
-void set_capability(GLenum capability, bool enabled)
+void set_capability(u32 capability, bool enabled)
 {
     if (enabled)
     {
@@ -217,8 +216,7 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     if (!sdl_gl_context)
         fatal("OpenGL context creation failed!");
 
-    if (gl3wInit() == -1)
-        fatal("gl3wInit failed");
+    vx_gl_init(SDL_GL_GetProcAddress);
 
     int2 display_size;
     int2 drawable_size;
@@ -271,7 +269,7 @@ gpu_buffer* gpu_buffer_create(gpu_device* /*gpu*/, usize size, gpu_buffer_type t
 
     buffer.target = gpu_convert_enum(type);
 
-    GLint prev = 0;
+    i32 prev = 0;
     glGetIntegerv(buffer.target, &prev);
 
     glBindBuffer(buffer.target, buffer.object);
@@ -291,7 +289,7 @@ void gpu_buffer_update(
     gl_buffer buffer = gpu_convert_handle(buffer_handle);
 
     glBindBuffer(buffer.target, buffer.object);
-    glBufferSubData(buffer.target, GLintptr(offset), size, data);
+    glBufferSubData(buffer.target, iptr(offset), size, data);
 }
 
 void gpu_buffer_destroy(gpu_device* /*gpu*/, gpu_buffer* buffer)
@@ -321,14 +319,14 @@ gpu_texture* gpu_texture_create(
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
-    GLint px_format = 0;
+    i32 px_format = 0;
     switch (format)
     {
         case gpu_pixel_format::rgba8_unorm:
             px_format = GL_RGBA;
     }
 
-    GLint px_type = 0;
+    i32 px_type = 0;
     switch (format)
     {
         case gpu_pixel_format::rgba8_unorm:
@@ -486,7 +484,7 @@ gpu_shader* gpu_shader_create(
     glShaderSource(shader.object, vx_countof(defs), defs, 0);
     glCompileShader(shader.object);
 
-    GLint status;
+    i32 status;
     glGetShaderiv(shader.object, GL_COMPILE_STATUS, &status);
     if (status == GL_FALSE)
     {
@@ -533,7 +531,7 @@ gpu_pipeline* gpu_pipeline_create(
 
     glLinkProgram(pipeline.program);
 
-    GLint status;
+    i32 status;
     glGetProgramiv(pipeline.program, GL_LINK_STATUS, &status);
 
     if (status == GL_FALSE)
@@ -605,7 +603,7 @@ void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vert
             attrib.type,
             attrib.normalized,
             descriptor->stride,
-            attrib.offset);
+            (void*)attrib.offset);
     }
 }
 
@@ -613,7 +611,7 @@ void gpu_channel_set_texture_cmd(gpu_channel* /*channel*/, gpu_texture* texture_
 {
     gl_texture texture = gpu_convert_handle(texture_handle);
     glBindTexture(texture.target, texture.object);
-    glUniform1i(GLint(index), 0);
+    glUniform1i(i32(index), 0);
 }
 
 void gpu_channel_set_sampler_cmd(gpu_channel* /*channel*/, gpu_sampler* sampler_handle, u32 index)
@@ -648,12 +646,12 @@ void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
     // The OpenGL screen coordinates are flipped w.r.t. to the y-axis
     // y-zero is at the top of the screen
     int fb_height = int(device->display_size.y * device->display_scale.y);
-    glScissor(GLint(rect->x), fb_height - int(rect->y + rect->h), GLint(rect->w), GLint(rect->h));
+    glScissor(i32(rect->x), fb_height - int(rect->y + rect->h), i32(rect->w), i32(rect->h));
 }
 
 void gpu_channel_set_viewport_cmd(gpu_channel* /*channel*/, gpu_viewport* viewport)
 {
-    glViewport(GLint(viewport->x), GLint(viewport->y), GLsizei(viewport->w), GLsizei(viewport->h));
+    glViewport(i32(viewport->x), i32(viewport->y), i32(viewport->w), i32(viewport->h));
 }
 
 void gpu_channel_draw_primitives_cmd(
@@ -682,6 +680,6 @@ void gpu_channel_draw_indexed_primitives_cmd(
         gpu_convert_enum(primitive_type),
         index_count,
         gpu_convert_enum(index_type),
-        (const GLvoid*)uptr(index_byte_offset));
+        (void*)uptr(index_byte_offset));
 }
 }

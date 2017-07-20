@@ -20,6 +20,7 @@ using i64 = std::int64_t;
 using usize = std::size_t;
 using iptr = std::intptr_t;
 using uptr = std::uintptr_t;
+using ptrdiff = std::ptrdiff_t;
 
 using float2 = glm::vec2;
 using float3 = glm::vec3;
