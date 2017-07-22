@@ -126,15 +126,15 @@ u32 compile_gl_shader_from_file(const char* file_path)
     u32 vs_stage = glCreateShader(GL_VERTEX_SHADER);
     u32 fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
     u32 program = glCreateProgram();
-    char* vs_defs[] = {
+    const char* vs_defs[] = {
         "#version 440 core\n", "#define VX_SHADER 0\n", shader_source,
     };
-    char* fs_defs[] = {
+    const char* fs_defs[] = {
         "#version 440 core\n", "#define VX_SHADER 1\n", shader_source,
     };
 
-    glShaderSource(vs_stage, vx_countof(vs_defs), vs_defs, 0);
-    glShaderSource(fs_stage, vx_countof(fs_defs), fs_defs, 0);
+    glShaderSource(vs_stage, vx_countof(vs_defs), (char**)vs_defs, 0);
+    glShaderSource(fs_stage, vx_countof(fs_defs), (char**)fs_defs, 0);
 
     glCompileShader(vs_stage);
     glCompileShader(fs_stage);

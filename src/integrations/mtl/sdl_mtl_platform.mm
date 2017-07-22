@@ -173,7 +173,7 @@ void platform_frame_end(platform* platform)
     [mtl->release_pool release];
 }
 
-gpu_buffer* gpu_buffer_create(gpu_device* gpu, usize size)
+gpu_buffer* gpu_buffer_create(gpu_device* gpu, usize size, gpu_buffer_type /*type*/)
 {
     mtl_device* mtl = (mtl_device*)gpu;
     return (gpu_buffer*)[mtl->device newBufferWithLength:size
@@ -383,7 +383,8 @@ void gpu_shader_destroy(gpu_device* gpu, gpu_shader* shader)
 gpu_pipeline* gpu_pipeline_create(
     gpu_device* gpu,
     gpu_shader* vertex_shader,
-    gpu_shader* fragment_shader)
+    gpu_shader* fragment_shader,
+    const gpu_pipeline_options& /*options*/)
 {
     mtl_device* mtl;
     id<MTLRenderPipelineState> pipeline;
@@ -442,6 +443,8 @@ void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 in
     id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)channel;
     [encoder setVertexBuffer:(id<MTLBuffer>)buffer offset:0 atIndex:index];
 }
+
+void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* /*vertex_desc*/) {}
 
 void gpu_channel_set_texture_cmd(gpu_channel* channel, gpu_texture* texture, u32 index)
 {

@@ -232,7 +232,7 @@ bool imgui_init(platform* platform)
     //
 
     {
-        gpu_pipeline_options opts = {0};
+        gpu_pipeline_options opts = {};
         opts.blend_enabled = true;
         opts.culling_enabled = false;
         opts.depth_test_enabled = false;
