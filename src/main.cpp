@@ -125,7 +125,6 @@ int main(int /*argc*/, char** /*argv*/)
         {
             vx::gpu_device* gpu = app.platform.gpu;
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
-            vx::gpu_clear_cmd_args clear_args = {app.render.bg_color, 1.0f, 0};
             vx::voxed_render(voxed);
             vx::imgui_render(&app.platform, channel);
             vx::gpu_channel_close(gpu, channel);

@@ -262,7 +262,7 @@ void platform_frame_end(platform* platform)
 
 gpu_buffer* gpu_buffer_create(gpu_device* /*gpu*/, usize size, gpu_buffer_type type)
 {
-    gl_buffer buffer = {0};
+    gl_buffer buffer = {};
     glGenBuffers(1, &buffer.object);
     if (buffer.object == 0)
         fatal("Failed to create buffer!");
@@ -308,7 +308,7 @@ gpu_texture* gpu_texture_create(
     gpu_pixel_format format,
     void* data)
 {
-    gl_texture texture = {0};
+    gl_texture texture = {};
     glGenTextures(1, &texture.object);
     if (!texture.object)
         fatal("Failed to create texture!");
@@ -351,7 +351,7 @@ gpu_sampler* gpu_sampler_create(
     gpu_filter_mode mag,
     gpu_filter_mode /*mip*/)
 {
-    gl_sampler sampler = {0};
+    gl_sampler sampler = {};
     glGenSamplers(1, &sampler.object);
     if (!sampler.object)
         fatal("Sampler creation failed!");
@@ -473,15 +473,15 @@ gpu_shader* gpu_shader_create(
     usize /*size*/,
     const char* /*main_function*/)
 {
-    char* shader_define[] = {"#define VX_SHADER 0\n", "#define VX_SHADER 1\n"};
-    char* defs[] = {"#version 440 core\n", shader_define[int(type)], (char*)data};
+    const char* shader_define[] = {"#define VX_SHADER 0\n", "#define VX_SHADER 1\n"};
+    const char* defs[] = {"#version 440 core\n", shader_define[int(type)], (char*)data};
 
-    gl_shader shader = {0};
+    gl_shader shader = {};
     shader.object = glCreateShader(gpu_convert_enum(type));
     if (!shader.object)
         fatal("Failed to create shader!");
 
-    glShaderSource(shader.object, vx_countof(defs), defs, 0);
+    glShaderSource(shader.object, vx_countof(defs), (char**)defs, 0);
     glCompileShader(shader.object);
 
     i32 status;
@@ -515,7 +515,7 @@ gpu_pipeline* gpu_pipeline_create(
     gl_shader vertex_shader = gpu_convert_handle(vertex_shader_handle);
     gl_shader fragment_shader = gpu_convert_handle(fragment_shader_handle);
 
-    gl_pipeline pipeline = {0};
+    gl_pipeline pipeline = {};
     pipeline.blend_enabled = options.blend_enabled;
     pipeline.culling_enabled = options.culling_enabled;
     pipeline.depth_test_enabled = options.depth_test_enabled;
