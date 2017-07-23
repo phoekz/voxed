@@ -1,11 +1,11 @@
 #pragma once
 
 #include <algorithm>
-#define _USE_MATH_DEFINES
-#include <math.h>
 
 namespace vx
 {
+constexpr float pi = 3.14159265358979323846f;
+
 template<typename T>
 T clamp(T t, T min, T max)
 {
@@ -21,12 +21,12 @@ VecType remap_range(VecType value, VecType a_min, VecType a_max, VecType b_min, 
 template<typename T>
 constexpr T degrees_to_radians(T degrees)
 {
-    return (degrees * T(M_PI)) / T(180);
+    return (degrees * T(pi)) / T(180);
 }
 
 template<typename T>
 constexpr T radians_to_degrees(T radians)
 {
-    return (radians * T(180)) / T(M_PI);
+    return (radians * T(180)) / T(pi);
 }
 }
