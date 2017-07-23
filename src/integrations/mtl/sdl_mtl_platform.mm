@@ -25,6 +25,13 @@ struct mtl_device
     id<MTLCommandBuffer> cmdbuf;
     id<CAMetalDrawable> drawable;
 };
+
+struct mtl_pipeline
+{
+    id<MTLRenderPipelineState> pipeline;
+    id<MTLDepthStencilState> depth_stencil;
+    MTLCullMode cull_mode;
+};
 }
 
 namespace vx
@@ -213,8 +220,12 @@ gpu_texture* gpu_texture_create(
         case gpu_pixel_format::rgba8_unorm:
             pixel_format = MTLPixelFormatRGBA8Unorm;
             break;
+        case gpu_pixel_format::rgba8_unorm_srgb:
+            pixel_format = MTLPixelFormatRGBA8Unorm_sRGB;
+            break;
         default:
             fatal("Invalid gpu texture format: %d", format);
+            break;
     }
 
     desc = [[MTLTextureDescriptor alloc] init];
@@ -384,20 +395,22 @@ gpu_pipeline* gpu_pipeline_create(
     gpu_device* gpu,
     gpu_shader* vertex_shader,
     gpu_shader* fragment_shader,
-    const gpu_pipeline_options& /*options*/)
+    const gpu_pipeline_options& options)
 {
     mtl_device* mtl;
     id<MTLRenderPipelineState> pipeline;
-    MTLRenderPipelineDescriptor* desc;
+    id<MTLDepthStencilState> depth_stencil;
+    MTLRenderPipelineDescriptor* pdesc;
+    MTLDepthStencilDescriptor* dsdesc;
     NSError* error;
 
     mtl = (mtl_device*)gpu;
-    desc = [[MTLRenderPipelineDescriptor alloc] init];
-    desc.sampleCount = 1;
-    desc.vertexFunction = (id<MTLFunction>)vertex_shader;
-    desc.fragmentFunction = (id<MTLFunction>)fragment_shader;
+    pdesc = [[MTLRenderPipelineDescriptor alloc] init];
+    pdesc.sampleCount = 1;
+    pdesc.vertexFunction = (id<MTLFunction>)vertex_shader;
+    pdesc.fragmentFunction = (id<MTLFunction>)fragment_shader;
 
-    MTLRenderPipelineColorAttachmentDescriptor* color_attachment = desc.colorAttachments[0];
+    MTLRenderPipelineColorAttachmentDescriptor* color_attachment = pdesc.colorAttachments[0];
     color_attachment.pixelFormat = MTLPixelFormatRGBA8Unorm;
     color_attachment.blendingEnabled = YES;
 
@@ -410,13 +423,25 @@ gpu_pipeline* gpu_pipeline_create(
     color_attachment.sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
     color_attachment.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
 
-    pipeline = [mtl->device newRenderPipelineStateWithDescriptor:desc error:&error];
+    pipeline = [mtl->device newRenderPipelineStateWithDescriptor:pdesc error:&error];
 
     if (!pipeline)
         fatal("Pipeline create error: %s", error.description.UTF8String);
 
-    [desc release];
-    return (gpu_pipeline*)pipeline;
+    [pdesc release];
+
+    dsdesc = [[MTLDepthStencilDescriptor alloc] init];
+    dsdesc.depthCompareFunction =
+        options.depth_test_enabled ? MTLCompareFunctionLess : MTLCompareFunctionAlways;
+    dsdesc.depthWriteEnabled = YES;
+    depth_stencil = [mtl->device newDepthStencilStateWithDescriptor:dsdesc];
+    [dsdesc release];
+
+    mtl_pipeline* mtlp = (mtl_pipeline*)std::malloc(sizeof(mtl_pipeline));
+    mtlp->pipeline = pipeline;
+    mtlp->depth_stencil = depth_stencil;
+    mtlp->cull_mode = options.culling_enabled ? MTLCullModeBack : MTLCullModeNone;
+    return (gpu_pipeline*)mtlp;
 }
 
 void gpu_pipeline_destroy(gpu_device* gpu, gpu_pipeline* pipeline)
@@ -442,6 +467,7 @@ void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 in
 {
     id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)channel;
     [encoder setVertexBuffer:(id<MTLBuffer>)buffer offset:0 atIndex:index];
+    [encoder setFragmentBuffer:(id<MTLBuffer>)buffer offset:0 atIndex:index];
 }
 
 void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* /*vertex_desc*/) {}
@@ -461,7 +487,11 @@ void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32
 void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline)
 {
     id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)channel;
-    [encoder setRenderPipelineState:(id<MTLRenderPipelineState>)pipeline];
+    mtl_pipeline* mtl = (mtl_pipeline*)pipeline;
+    [encoder setDepthStencilState:mtl->depth_stencil];
+    [encoder setRenderPipelineState:mtl->pipeline];
+    [encoder setCullMode:mtl->cull_mode];
+    [encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 }
 
 void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
@@ -524,12 +554,16 @@ void gpu_channel_draw_primitives_cmd(
     gpu_channel* channel,
     gpu_primitive_type primitive_type,
     u32 vertex_start,
-    u32 vertex_count)
+    u32 vertex_count,
+    u32 instance_count,
+    u32 base_instance)
 {
     id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)channel;
     [encoder drawPrimitives:gpu_convert_enum(primitive_type)
                 vertexStart:vertex_start
-                vertexCount:vertex_count];
+                vertexCount:vertex_count
+              instanceCount:instance_count
+               baseInstance:base_instance];
 }
 
 void gpu_channel_draw_indexed_primitives_cmd(
@@ -538,7 +572,10 @@ void gpu_channel_draw_indexed_primitives_cmd(
     u32 index_count,
     gpu_index_type index_type,
     gpu_buffer* index_buffer,
-    u32 index_byte_offset)
+    u32 index_byte_offset,
+    u32 instance_count,
+    i32 base_vertex,
+    u32 base_instance)
 {
     id<MTLRenderCommandEncoder> encoder = (id<MTLRenderCommandEncoder>)channel;
     [encoder drawIndexedPrimitives:gpu_convert_enum(primitive_type)
@@ -546,6 +583,8 @@ void gpu_channel_draw_indexed_primitives_cmd(
                          indexType:gpu_convert_enum(index_type)
                        indexBuffer:(id<MTLBuffer>)index_buffer
                  indexBufferOffset:index_byte_offset
-                     instanceCount:1];
+                     instanceCount:instance_count
+                        baseVertex:base_vertex
+                      baseInstance:base_instance];
 }
 }

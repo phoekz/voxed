@@ -1,12 +1,12 @@
-#if VX_SHADER == 0
+#if VX_SHADER == VX_VERTEX_SHADER
 
 layout(location = 0) in vec2 a_position;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec4 a_color;
 
-layout(binding = 1, column_major) uniform Matrix
+layout(binding = 1, column_major) uniform global_constants
 {
-mat4 u_projection;
+    mat4 u_projection;
 };
 
 out vec2 v_frag_uv;
@@ -19,7 +19,7 @@ void main()
     gl_Position = u_projection * vec4(a_position.xy, 0, 1);
 }
 
-#elif VX_SHADER == 1
+#elif VX_SHADER == VX_FRAGMENT_SHADER
 
 uniform sampler2D u_texture;
 

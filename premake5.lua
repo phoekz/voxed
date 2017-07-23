@@ -65,6 +65,7 @@ project (project_name)
     filter "system:macosx"
         files {
             "src/integrations/mtl/**",
+            "src/shaders/**.metal",
         }
         includedirs { "/usr/local/Cellar/sdl2/2.0.5/include/SDL2" }
         libdirs { "/usr/local/Cellar/sdl2/2.0.5/lib" }
@@ -74,12 +75,17 @@ project (project_name)
             "Metal.framework",
             "Quartz.framework",
         }
-        prebuildcommands {
-            "exec "
-            .. path.join(os.getcwd(), "scripts/build_metal_shaders.sh")
-            .. " "
-            .. path.join(os.getcwd(), "src/shaders/mtl")
-        }
+        filter "files:**.metal"
+            buildmessage ("Compiling %{file.relpath}")
+            buildcommands {
+                "exec "
+                .. path.join(os.getcwd(), "scripts/build_metal_shaders.sh")
+                .. " "
+                .. "%{file.abspath}"
+                .. " "
+                .. "%{cfg.targetdir}/shaders/mtl/%{file.basename}.metallib"
+            }
+            buildoutputs { "%{cfg.targetdir}/shaders/mtl/%{file.basename}.metallib" }
 
     filter "system:windows"
         files {

@@ -39,7 +39,7 @@ struct
 
 struct imgui_userdata
 {
-    platform* platform;
+    gpu_device* gpu;
     gpu_channel* channel;
 };
 
@@ -47,8 +47,7 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
 {
     ImGuiIO& io = ImGui::GetIO();
     imgui_userdata* user = (imgui_userdata*)io.UserData;
-    platform* platform = user->platform;
-    gpu_device* gpu = platform->gpu;
+    gpu_device* gpu = user->gpu;
     gpu_channel* channel = user->channel;
 
     //
@@ -142,7 +141,10 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
                     draw_cmd->ElemCount,
                     gpu_index_type::u16,
                     index_buffer,
-                    index_offset * sizeof(u16));
+                    index_offset * sizeof(u16),
+                    1,
+                    0,
+                    0);
             }
 
             index_offset += draw_cmd->ElemCount;
@@ -212,8 +214,7 @@ bool imgui_init(platform* platform)
         usize program_size;
 
 #if VX_GRAPHICS_API == VX_METAL
-        // TODO: copy metal shader resources
-        program_src = read_whole_file("src/shaders/mtl/gui.metallib", &program_size);
+        program_src = read_whole_file("shaders/mtl/gui.metallib", &program_size);
 #elif VX_GRAPHICS_API == VX_OPENGL
         program_src = read_whole_file("shaders/gl/gui.glsl", &program_size);
 #endif
@@ -236,7 +237,7 @@ bool imgui_init(platform* platform)
         opts.blend_enabled = true;
         opts.culling_enabled = false;
         opts.depth_test_enabled = false;
-        opts.scissor_test_enabled = true;
+        opts.depth_write_enabled = false;
 
         imgui_ctx.pipeline =
             gpu_pipeline_create(gpu, imgui_ctx.vertex_shader, imgui_ctx.fragment_shader, opts);
@@ -384,9 +385,9 @@ void imgui_new_frame(SDL_Window* window)
     ImGui::NewFrame();
 }
 
-void imgui_render(platform* platform, gpu_channel* channel)
+void imgui_render(gpu_device* gpu, gpu_channel* channel)
 {
-    imgui_userdata user{platform, channel};
+    imgui_userdata user{gpu, channel};
     ImGui::GetIO().UserData = &user;
     ImGui::Render();
 }
