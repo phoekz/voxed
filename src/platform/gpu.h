@@ -38,6 +38,7 @@ enum class gpu_index_type
 enum class gpu_pixel_format
 {
     rgba8_unorm,
+    rgba8_unorm_srgb,
 };
 
 enum class gpu_filter_mode
@@ -115,8 +116,8 @@ void gpu_shader_destroy(gpu_device* gpu, gpu_shader* shader);
 struct gpu_pipeline_options
 {
     bool depth_test_enabled;
+    bool depth_write_enabled;
     bool culling_enabled;
-    bool scissor_test_enabled;
     bool blend_enabled;
 };
 
@@ -149,12 +150,17 @@ void gpu_channel_draw_primitives_cmd(
     gpu_channel* channel,
     gpu_primitive_type primitive_type,
     u32 vertex_start,
-    u32 vertex_count);
+    u32 vertex_count,
+    u32 instance_count,
+    u32 base_instance);
 void gpu_channel_draw_indexed_primitives_cmd(
     gpu_channel* channel,
     gpu_primitive_type primitive_type,
     u32 index_count,
     gpu_index_type index_type,
     gpu_buffer* index_buffer,
-    u32 index_byte_offset);
+    u32 index_byte_offset,
+    u32 instance_count,
+    i32 base_vertex,
+    u32 base_instance);
 }

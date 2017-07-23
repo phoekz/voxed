@@ -1,24 +1,41 @@
-#if VX_SHADER == 0
+layout(std430, binding = 1, column_major) buffer global_constants
+{
+    mat4 camera;
+} global;
+
+struct object_t
+{
+    mat4 model;
+    vec4 color;
+};
+
+layout(std430, binding = 2, column_major) buffer object_constants
+{
+    object_t objects[];
+};
+
+#if VX_SHADER == VX_VERTEX_SHADER
 
 layout(location = 0) in vec3 a_position;
 
-layout(location = 0) uniform mat4 u_camera;
-layout(location = 1) uniform mat4 u_model;
+out vec4 v_color;
 
 void main()
 {
-    gl_Position = u_camera * u_model * vec4(a_position, 1.0);
+    uint iid = VX_INSTANCE_ID;
+    gl_Position = global.camera * objects[iid].model * vec4(a_position, 1.0);
+    v_color = objects[iid].color;
 }
 
-#elif VX_SHADER == 1
+#elif VX_SHADER == VX_FRAGMENT_SHADER
 
-layout(location = 2) uniform vec3 u_color;
+in vec4 v_color;
 
 out vec4 frag_color;
 
 void main()
 {
-    frag_color = vec4(u_color, 1.0);
+    frag_color = v_color;
 }
 
 #endif

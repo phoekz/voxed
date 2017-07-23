@@ -24,7 +24,7 @@ enums = [
     # Buffer Objects
     "GL_ARRAY_BUFFER",
     "GL_ELEMENT_ARRAY_BUFFER",
-    "GL_UNIFORM_BUFFER",
+    "GL_SHADER_STORAGE_BUFFER",
     "GL_STATIC_DRAW",
     # Textures
     "GL_TEXTURE0",
@@ -35,6 +35,7 @@ enums = [
     "GL_TEXTURE_MAG_FILTER",
     "GL_UNPACK_ROW_LENGTH",
     # Texture Internal Formats
+    "GL_RGBA8",
     "GL_SRGB8_ALPHA8",
     # Texture Formats
     "GL_RGBA",
@@ -117,11 +118,9 @@ functions = [
     "glDeleteProgram",
     # Uniforms
     "glUniform1i",
-    "glUniform3f",
-    "glUniformMatrix4fv",
     # Draw Calls
-    "glDrawArrays",
-    "glDrawElements",
+    "glDrawArraysInstancedBaseInstance",
+    "glDrawElementsInstancedBaseVertexBaseInstance",
     # Introspection
     "glGetIntegerv",
     "glGetShaderiv",

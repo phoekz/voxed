@@ -37,6 +37,7 @@
 #define GL_TEXTURE_MIN_FILTER 0x00002801u
 #define GL_TEXTURE_WRAP_S 0x00002802u
 #define GL_TEXTURE_WRAP_T 0x00002803u
+#define GL_RGBA8 0x00008058u
 #define GL_CLAMP_TO_EDGE 0x0000812fu
 #define GL_TEXTURE0 0x000084c0u
 #define GL_FUNC_ADD 0x00008006u
@@ -49,7 +50,7 @@
 #define GL_LINK_STATUS 0x00008b82u
 #define GL_SRGB8_ALPHA8 0x00008c43u
 #define GL_FRAMEBUFFER_SRGB 0x00008db9u
-#define GL_UNIFORM_BUFFER 0x00008a11u
+#define GL_SHADER_STORAGE_BUFFER 0x000090d2u
 
 extern void(*glFrontFace)(vx::u32 mode);
 extern void(*glScissor)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
@@ -67,8 +68,6 @@ extern void(*glDepthFunc)(vx::u32 func);
 extern void(*glPixelStorei)(vx::u32 pname, vx::i32 param);
 extern void(*glGetIntegerv)(vx::u32 pname, vx::i32* data);
 extern void(*glViewport)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
-extern void(*glDrawArrays)(vx::u32 mode, vx::i32 first, vx::i32 count);
-extern void(*glDrawElements)(vx::u32 mode, vx::i32 count, vx::u32 type, void* indices);
 extern void(*glBindTexture)(vx::u32 target, vx::u32 texture);
 extern void(*glDeleteTextures)(vx::i32 n, vx::u32* textures);
 extern void(*glGenTextures)(vx::i32 n, vx::u32* textures);
@@ -93,9 +92,7 @@ extern void(*glGetShaderInfoLog)(vx::u32 shader, vx::i32 bufSize, vx::i32* lengt
 extern void(*glLinkProgram)(vx::u32 program);
 extern void(*glShaderSource)(vx::u32 shader, vx::i32 count, char** string, vx::i32* length);
 extern void(*glUseProgram)(vx::u32 program);
-extern void(*glUniform3f)(vx::i32 location, float v0, float v1, float v2);
 extern void(*glUniform1i)(vx::i32 location, vx::i32 v0);
-extern void(*glUniformMatrix4fv)(vx::i32 location, vx::i32 count, vx::u8 transpose, float* value);
 extern void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 extern void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
 extern void(*glGenerateMipmap)(vx::u32 target);
@@ -105,6 +102,8 @@ extern void(*glGenSamplers)(vx::i32 count, vx::u32* samplers);
 extern void(*glDeleteSamplers)(vx::i32 count, vx::u32* samplers);
 extern void(*glBindSampler)(vx::u32 unit, vx::u32 sampler);
 extern void(*glSamplerParameteri)(vx::u32 sampler, vx::u32 pname, vx::i32 param);
+extern void(*glDrawArraysInstancedBaseInstance)(vx::u32 mode, vx::i32 first, vx::i32 count, vx::i32 instancecount, vx::u32 baseinstance);
+extern void(*glDrawElementsInstancedBaseVertexBaseInstance)(vx::u32 mode, vx::i32 count, vx::u32 type, void* indices, vx::i32 instancecount, vx::i32 basevertex, vx::u32 baseinstance);
 
 extern void vx_gl_init(void *(*addr)(const char *));
 
@@ -126,8 +125,6 @@ void(*glDepthFunc)(vx::u32 func);
 void(*glPixelStorei)(vx::u32 pname, vx::i32 param);
 void(*glGetIntegerv)(vx::u32 pname, vx::i32* data);
 void(*glViewport)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
-void(*glDrawArrays)(vx::u32 mode, vx::i32 first, vx::i32 count);
-void(*glDrawElements)(vx::u32 mode, vx::i32 count, vx::u32 type, void* indices);
 void(*glBindTexture)(vx::u32 target, vx::u32 texture);
 void(*glDeleteTextures)(vx::i32 n, vx::u32* textures);
 void(*glGenTextures)(vx::i32 n, vx::u32* textures);
@@ -152,9 +149,7 @@ void(*glGetShaderInfoLog)(vx::u32 shader, vx::i32 bufSize, vx::i32* length, char
 void(*glLinkProgram)(vx::u32 program);
 void(*glShaderSource)(vx::u32 shader, vx::i32 count, char** string, vx::i32* length);
 void(*glUseProgram)(vx::u32 program);
-void(*glUniform3f)(vx::i32 location, float v0, float v1, float v2);
 void(*glUniform1i)(vx::i32 location, vx::i32 v0);
-void(*glUniformMatrix4fv)(vx::i32 location, vx::i32 count, vx::u8 transpose, float* value);
 void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
 void(*glGenerateMipmap)(vx::u32 target);
@@ -164,6 +159,8 @@ void(*glGenSamplers)(vx::i32 count, vx::u32* samplers);
 void(*glDeleteSamplers)(vx::i32 count, vx::u32* samplers);
 void(*glBindSampler)(vx::u32 unit, vx::u32 sampler);
 void(*glSamplerParameteri)(vx::u32 sampler, vx::u32 pname, vx::i32 param);
+void(*glDrawArraysInstancedBaseInstance)(vx::u32 mode, vx::i32 first, vx::i32 count, vx::i32 instancecount, vx::u32 baseinstance);
+void(*glDrawElementsInstancedBaseVertexBaseInstance)(vx::u32 mode, vx::i32 count, vx::u32 type, void* indices, vx::i32 instancecount, vx::i32 basevertex, vx::u32 baseinstance);
 
 void vx_gl_init(void *(*addr)(const char *))
 {
@@ -183,8 +180,6 @@ void vx_gl_init(void *(*addr)(const char *))
     glPixelStorei = (void(*)(vx::u32, vx::i32))addr("glPixelStorei");
     glGetIntegerv = (void(*)(vx::u32, vx::i32*))addr("glGetIntegerv");
     glViewport = (void(*)(vx::i32, vx::i32, vx::i32, vx::i32))addr("glViewport");
-    glDrawArrays = (void(*)(vx::u32, vx::i32, vx::i32))addr("glDrawArrays");
-    glDrawElements = (void(*)(vx::u32, vx::i32, vx::u32, void*))addr("glDrawElements");
     glBindTexture = (void(*)(vx::u32, vx::u32))addr("glBindTexture");
     glDeleteTextures = (void(*)(vx::i32, vx::u32*))addr("glDeleteTextures");
     glGenTextures = (void(*)(vx::i32, vx::u32*))addr("glGenTextures");
@@ -209,9 +204,7 @@ void vx_gl_init(void *(*addr)(const char *))
     glLinkProgram = (void(*)(vx::u32))addr("glLinkProgram");
     glShaderSource = (void(*)(vx::u32, vx::i32, char**, vx::i32*))addr("glShaderSource");
     glUseProgram = (void(*)(vx::u32))addr("glUseProgram");
-    glUniform3f = (void(*)(vx::i32, float, float, float))addr("glUniform3f");
     glUniform1i = (void(*)(vx::i32, vx::i32))addr("glUniform1i");
-    glUniformMatrix4fv = (void(*)(vx::i32, vx::i32, vx::u8, float*))addr("glUniformMatrix4fv");
     glVertexAttribPointer = (void(*)(vx::u32, vx::i32, vx::u32, vx::u8, vx::i32, void*))addr("glVertexAttribPointer");
     glBindBufferBase = (void(*)(vx::u32, vx::u32, vx::u32))addr("glBindBufferBase");
     glGenerateMipmap = (void(*)(vx::u32))addr("glGenerateMipmap");
@@ -221,6 +214,8 @@ void vx_gl_init(void *(*addr)(const char *))
     glDeleteSamplers = (void(*)(vx::i32, vx::u32*))addr("glDeleteSamplers");
     glBindSampler = (void(*)(vx::u32, vx::u32))addr("glBindSampler");
     glSamplerParameteri = (void(*)(vx::u32, vx::u32, vx::i32))addr("glSamplerParameteri");
+    glDrawArraysInstancedBaseInstance = (void(*)(vx::u32, vx::i32, vx::i32, vx::i32, vx::u32))addr("glDrawArraysInstancedBaseInstance");
+    glDrawElementsInstancedBaseVertexBaseInstance = (void(*)(vx::u32, vx::i32, vx::u32, void*, vx::i32, vx::i32, vx::u32))addr("glDrawElementsInstancedBaseVertexBaseInstance");
 }
 
 #endif // VX_GL_IMPLEMENTATION

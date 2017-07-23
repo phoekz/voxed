@@ -60,7 +60,7 @@ int main(int /*argc*/, char** /*argv*/)
     if (!vx::imgui_init(&app.platform))
         vx::fatal("ImGui initialization failed");
 
-    voxed = vx::voxed_create();
+    voxed = vx::voxed_create(&app.platform);
     if (!voxed)
         vx::fatal("Voxel app initialization failed");
 
@@ -125,8 +125,10 @@ int main(int /*argc*/, char** /*argv*/)
         {
             vx::gpu_device* gpu = app.platform.gpu;
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
-            vx::voxed_render(voxed);
-            vx::imgui_render(&app.platform, channel);
+            vx::gpu_clear_cmd_args clear_args{app.render.bg_color, 1.0f, 0};
+            vx::gpu_channel_clear_cmd(channel, &clear_args);
+            vx::voxed_render(voxed, gpu, channel);
+            vx::imgui_render(gpu, channel);
             vx::gpu_channel_close(gpu, channel);
         }
 

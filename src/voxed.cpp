@@ -4,16 +4,12 @@
 #include "common/math_utils.h"
 #include "common/macros.h"
 #include "common/mouse.h"
+#include "common/array.h"
 #include "platform/filesystem.h"
+#include "platform/gpu.h"
 
 #include "glm.hpp"
 #include "gtc/matrix_transform.hpp"
-#include "integrations/gl/gl.h"
-
-#include <vector>
-
-#undef near
-#undef far
 
 #define VX_GRID_SIZE 16
 
@@ -68,7 +64,7 @@ void on_camera_orbit(orbit_camera& camera, float dx, float dy, float dt)
     const float scale = 16.f;
     camera.polar += dt * scale * degrees_to_radians(dy);
     camera.azimuth -= dt * scale * degrees_to_radians(dx);
-    camera.polar = clamp(camera.polar, -float(0.499 * M_PI), float(0.499 * M_PI));
+    camera.polar = clamp(camera.polar, -float(0.499 * pi), float(0.499 * pi));
 }
 
 // The coordinate system used here is the following.
@@ -117,58 +113,6 @@ ray generate_camera_ray(const platform& platform, const orbit_camera& camera)
     ray.direction = glm::normalize(ray.direction);
 
     return ray;
-}
-
-u32 compile_gl_shader_from_file(const char* file_path)
-{
-    i32 status;
-    char* shader_source = read_whole_file(file_path, nullptr);
-    u32 vs_stage = glCreateShader(GL_VERTEX_SHADER);
-    u32 fs_stage = glCreateShader(GL_FRAGMENT_SHADER);
-    u32 program = glCreateProgram();
-    const char* vs_defs[] = {
-        "#version 440 core\n", "#define VX_SHADER 0\n", shader_source,
-    };
-    const char* fs_defs[] = {
-        "#version 440 core\n", "#define VX_SHADER 1\n", shader_source,
-    };
-
-    glShaderSource(vs_stage, vx_countof(vs_defs), (char**)vs_defs, 0);
-    glShaderSource(fs_stage, vx_countof(fs_defs), (char**)fs_defs, 0);
-
-    glCompileShader(vs_stage);
-    glCompileShader(fs_stage);
-
-    glGetShaderiv(vs_stage, GL_COMPILE_STATUS, &status);
-    if (!status)
-    {
-        char buf[2048];
-        glGetShaderInfoLog(vs_stage, sizeof(buf) - 1, 0, buf);
-        fatal("Vertex shader compilation failed (%s)\n%s\n", file_path, buf);
-    }
-
-    glGetShaderiv(fs_stage, GL_COMPILE_STATUS, &status);
-    if (!status)
-    {
-        char buf[2048];
-        glGetShaderInfoLog(fs_stage, sizeof(buf) - 1, 0, buf);
-        fatal("Fragment shader compilation failed (%s)\n%s\n", file_path, buf);
-    }
-
-    glAttachShader(program, vs_stage);
-    glAttachShader(program, fs_stage);
-    glLinkProgram(program);
-
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (!status)
-    {
-        char buf[2048];
-        glGetProgramInfoLog(program, sizeof(buf) - 1, 0, buf);
-        fatal("Program linking failed (%s)\n%s\n", file_path, buf);
-    }
-
-    std::free(shader_source);
-    return program;
 }
 
 // hsv2rgb from https://stackoverflow.com/a/19873710
@@ -224,7 +168,8 @@ struct voxed_state
 {
     struct mesh
     {
-        u32 vbo{0u}, ibo{0u}, vao{0u};
+        gpu_buffer *vertices, *indices;
+        gpu_vertex_desc* vertex_desc;
         u32 vertex_count, index_count;
     };
 
@@ -233,13 +178,61 @@ struct voxed_state
 
     struct
     {
-        u32 tex{0u};
+        gpu_texture* texture;
+        gpu_sampler* sampler;
+        float4x4 model;
+        gpu_buffer* buffer;
     } color_wheel;
-    u32 line_shader{0u}, solid_shader{0u}, textured_shader{0u};
-    float3 cube_color{0.1f, 0.1f, 0.1f};
-    float3 grid_color{0.4f, 0.4f, 0.4f};
-    float3 selection_color{0.05f, 0.05f, 0.05f};
-    float3 erase_color{1.0f, 0.1f, 0.1f};
+
+    struct shader
+    {
+        gpu_shader *vertex, *fragment;
+        gpu_pipeline* pipeline;
+    } line_shader, solid_shader, textured_shader;
+
+    struct global_constants
+    {
+        struct
+        {
+            float4x4 camera;
+        } data;
+        gpu_buffer* buffer;
+    } global_constants;
+
+    struct wire_cube_constants
+    {
+        enum
+        {
+            selection,
+            erase,
+            scene_bounds,
+            count,
+        };
+        struct data
+        {
+            float4x4 model;
+            float4 color;
+        } data[count];
+        gpu_buffer* buffer;
+    } wire_cube_constants;
+
+    struct voxel_grid_ruler_constants
+    {
+        struct data
+        {
+            float4x4 model;
+            float4 color;
+        } data[axis_plane_count];
+        gpu_buffer* buffer;
+    } voxel_grid_ruler_constants;
+
+    struct
+    {
+        float4 cube{0.1f, 0.1f, 0.1f, 1.0f};
+        float4 grid{0.4f, 0.4f, 0.4f, 1.0f};
+        float4 selection{0.05f, 0.05f, 0.05f, 1.0f};
+        float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
+    } colors;
     float4x4 camera_view{};
     orbit_camera camera{};
 
@@ -247,6 +240,15 @@ struct voxed_state
     float3 scene_extents;
     float3 voxel_extents;
     voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
+
+    // TODO(vinht): Temporary solution before we mesh the grid.
+    struct gpu_voxel
+    {
+        float3 offset;
+        float scale;
+        float4 color;
+    } * gpu_voxel_data;
+    gpu_buffer* gpu_voxel_buffer;
 
     // TODO(vinht): This is getting ridiculous.
     voxel_intersect_event intersect;
@@ -257,10 +259,11 @@ struct voxed_state
     voxed_mode mode;
 };
 
-voxed_state* voxed_create()
+voxed_state* voxed_create(platform* platform)
 {
     // TODO(johann): figure out a better way to set default values than calling the constructor
     voxed_state* state = new voxed_state();
+    gpu_device* gpu = platform->gpu;
 
     //
     // voxel grid
@@ -277,6 +280,12 @@ voxed_state* voxed_create()
             sizeof(state->voxel_grid) * 1e-6);
         state->scene_extents = extents(state->scene_bounds);
         state->voxel_extents = state->scene_extents / (float)VX_GRID_SIZE;
+
+        usize gpu_voxel_data_size =
+            VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE * sizeof(voxed_state::gpu_voxel);
+        state->gpu_voxel_data = (voxed_state::gpu_voxel*)std::malloc(gpu_voxel_data_size);
+        state->gpu_voxel_buffer =
+            gpu_buffer_create(gpu, gpu_voxel_data_size, gpu_buffer_type::constant);
     }
 
     //
@@ -284,40 +293,35 @@ voxed_state* voxed_create()
     //
 
     {
-        u32 vao, vbo, ibo;
         float3 mn{-1.0f}, mx{+1.0f};
 
         // clang-format off
-        float3 corners[] = {
+        float3 vertices[] = {
             {mn.x, mn.y, mn.z}, {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z}, {mx.x, mn.y, mn.z},
             {mn.x, mx.y, mn.z}, {mn.x, mx.y, mx.z}, {mx.x, mx.y, mx.z}, {mx.x, mx.y, mn.z},
         };
-        uint2 lines[] = {
+        uint2 indices[] = {
             {0, 1}, {1, 2}, {2, 3}, {3, 0},
             {4, 5}, {5, 6}, {6, 7}, {7, 4},
             {0, 4}, {1, 5}, {2, 6}, {3, 7},
         };
         // clang-format on
 
-        glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ibo);
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
+        voxed_state::mesh& m = state->wire_cube;
 
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(corners), corners, GL_STATIC_DRAW);
+        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(lines), lines, GL_STATIC_DRAW);
+        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
 
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
+        gpu_vertex_desc_attribute attribs[] = {
+            {gpu_vertex_format::float3, 0, 0},
+        };
+        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
 
-        state->wire_cube.vao = vao;
-        state->wire_cube.vbo = vbo;
-        state->wire_cube.ibo = ibo;
-        state->wire_cube.vertex_count = vx_countof(corners);
-        state->wire_cube.index_count = 2 * vx_countof(lines);
+        state->wire_cube.vertex_count = vx_countof(vertices);
+        state->wire_cube.index_count = 2 * vx_countof(indices);
     }
 
     //
@@ -325,7 +329,6 @@ voxed_state* voxed_create()
     //
 
     {
-        u32 vao, vbo, ibo;
         float3 mn{-1.0f}, mx{+1.0f};
 
         struct vertex
@@ -334,7 +337,7 @@ voxed_state* voxed_create()
         };
 
         // clang-format off
-        vertex verts[] =
+        vertex vertices[] =
         {
             // -x
             {{mn.x, mn.y, mn.z}, {-1.f, 0.f, 0.f}}, // 0
@@ -367,7 +370,7 @@ voxed_state* voxed_create()
             {{mx.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 22
             {{mn.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 23
         };
-        int3 tris[] =
+        int3 indices[] =
         {
             {0,1,2}, {2,3,0}, // -x
             {4,5,6}, {6,7,4}, // +x
@@ -378,27 +381,22 @@ voxed_state* voxed_create()
         };
         // clang-format on
 
-        glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ibo);
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
+        voxed_state::mesh& m = state->solid_cube;
 
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tris), tris, GL_STATIC_DRAW);
+        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
 
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (void*)sizeof(float3));
+        gpu_vertex_desc_attribute attribs[] = {
+            {gpu_vertex_format::float3, 0, 0}, {gpu_vertex_format::float3, 1, sizeof(float3)},
+        };
 
-        state->solid_cube.vao = vao;
-        state->solid_cube.vbo = vbo;
-        state->solid_cube.ibo = ibo;
-        state->solid_cube.vertex_count = vx_countof(verts);
-        state->solid_cube.index_count = 3 * vx_countof(tris);
+        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(vertex));
+
+        state->solid_cube.vertex_count = vx_countof(vertices);
+        state->solid_cube.index_count = 3 * vx_countof(indices);
     }
 
     //
@@ -416,41 +414,36 @@ voxed_state* voxed_create()
     const int line_count = (VX_GRID_SIZE / 2) + 1;
     const float line_length = (VX_GRID_SIZE / 2) * voxel_extent;
 
-    std::vector<line> grid_lines;
-    grid_lines.reserve(axis_plane_count * 2 * line_count);
+    array<line> grid_lines(axis_plane_count * 2 * line_count);
 
     for (int i = 0; i < axis_plane_count; i++)
     {
         for (int j = 0; j < line_count; j++)
         {
-            line l1, l2;
+            line& l1 = grid_lines.add();
+            line& l2 = grid_lines.add();
+
             l1.start = float3(0.f);
             l1.end = float3(0.f);
             l1.start[(i + 1) % 3] = voxel_extent * j;
             l1.end[(i + 1) % 3] = voxel_extent * j;
             l1.end[i] = line_length;
 
-            grid_lines.push_back(l1);
-
             l2.start[i] = voxel_extent * j;
             l2.end[i] = voxel_extent * j;
             l2.end[(i + 1) % 3] = line_length;
-
-            grid_lines.push_back(l2);
         }
 
-        auto& mesh = state->voxel_grid_rulers[i];
-        mesh.index_count = u32(grid_lines.size() * 2);
-        glGenVertexArrays(1, &mesh.vao);
-        glBindVertexArray(mesh.vao);
+        voxed_state::mesh& m = state->voxel_grid_rulers[i];
+        m.vertex_count = m.index_count = 2 * (u32)grid_lines.size();
 
-        glGenBuffers(1, &mesh.vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-        glBufferData(
-            GL_ARRAY_BUFFER, sizeof(line) * grid_lines.size(), grid_lines.data(), GL_STATIC_DRAW);
+        m.vertices = gpu_buffer_create(gpu, grid_lines.byte_size(), gpu_buffer_type::vertex);
+        gpu_buffer_update(gpu, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
 
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float3), 0);
+        gpu_vertex_desc_attribute attribs[] = {
+            {gpu_vertex_format::float3, 0, 0},
+        };
+        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
 
         grid_lines.clear();
     }
@@ -460,42 +453,35 @@ voxed_state* voxed_create()
     //
 
     {
-        u32 vao, vbo, ibo;
-
         struct vertex
         {
             float3 position;
             float2 uv;
         };
-        vertex verts[] = {
+        vertex vertices[] = {
             {{-1.f, -1.f, 0.f}, {0.f, 0.f}},
             {{+1.f, -1.f, 0.f}, {1.f, 0.f}},
             {{+1.f, +1.f, 0.f}, {1.f, 1.f}},
             {{-1.f, +1.f, 0.f}, {0.f, 1.f}},
         };
-        int3 tris[] = {{0, 1, 2}, {2, 3, 0}};
+        int3 indices[] = {{0, 1, 2}, {2, 3, 0}};
 
-        glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ibo);
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
+        voxed_state::mesh& m = state->quad;
 
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(tris), tris, GL_STATIC_DRAW);
+        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
 
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (void*)sizeof(float3));
+        gpu_vertex_desc_attribute attribs[] = {
+            {gpu_vertex_format::float3, 0, 0}, {gpu_vertex_format::float2, 1, sizeof(float3)},
+        };
 
-        state->quad.vao = vao;
-        state->quad.vbo = vbo;
-        state->quad.ibo = ibo;
-        state->quad.vertex_count = vx_countof(verts);
-        state->quad.index_count = 3 * vx_countof(tris);
+        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(vertex));
+
+        state->quad.vertex_count = vx_countof(vertices);
+        state->quad.index_count = 3 * vx_countof(indices);
     }
 
     //
@@ -525,8 +511,7 @@ voxed_state* voxed_create()
                 float r = glm::length(p);
                 if (r < 1.f)
                 {
-                    float angle =
-                        remap_range(glm::atan(p.y, p.x), -float(M_PI), float(M_PI), 0.f, 1.f);
+                    float angle = remap_range(glm::atan(p.y, p.x), -float(pi), float(pi), 0.f, 1.f);
                     float3 rgb = hsv_to_rgb(float3{angle, r, 1.f});
                     for (int c = 0; c < 3; c++)
                         pixels[4 * i + c] = (u8)(255.f * rgb[c]);
@@ -540,21 +525,12 @@ voxed_state* voxed_create()
                 }
             }
 
-        u32 tex;
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        state->color_wheel.texture =
+            gpu_texture_create(gpu, w, h, gpu_pixel_format::rgba8_unorm_srgb, pixels);
+        state->color_wheel.sampler = gpu_sampler_create(
+            gpu, gpu_filter_mode::linear, gpu_filter_mode::linear, gpu_filter_mode::nearest);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        glBindTexture(GL_TEXTURE_2D, 0);
         std::free(pixels);
-
-        state->color_wheel.tex = tex;
     }
 
     //
@@ -562,9 +538,67 @@ voxed_state* voxed_create()
     //
 
     {
-        state->line_shader = compile_gl_shader_from_file("shaders/gl/line.glsl");
-        state->solid_shader = compile_gl_shader_from_file("shaders/gl/solid.glsl");
-        state->textured_shader = compile_gl_shader_from_file("shaders/gl/textured.glsl");
+        gpu_pipeline_options line_opt = {}, solid_opt = {}, textured_opt = {};
+
+        line_opt.blend_enabled = false;
+        line_opt.culling_enabled = true;
+        line_opt.depth_test_enabled = true;
+        line_opt.depth_write_enabled = true;
+
+        solid_opt.blend_enabled = false;
+        solid_opt.culling_enabled = true;
+        solid_opt.depth_test_enabled = true;
+        solid_opt.depth_write_enabled = true;
+
+        textured_opt.blend_enabled = true;
+        textured_opt.culling_enabled = true;
+        textured_opt.depth_test_enabled = true;
+        textured_opt.depth_write_enabled = true;
+
+#if VX_GRAPHICS_API == VX_OPENGL
+#define SHADER_PATH(name) "shaders/gl/" name ".glsl"
+#elif VX_GRAPHICS_API == VX_METAL
+#define SHADER_PATH(name) "shaders/mtl/" name ".metallib"
+#endif
+
+        struct
+        {
+            const char* path;
+            voxed_state::shader& shader;
+            const gpu_pipeline_options& opt;
+        } sources[] = {
+            {SHADER_PATH("line"), state->line_shader, line_opt},
+            {SHADER_PATH("solid"), state->solid_shader, solid_opt},
+            {SHADER_PATH("textured"), state->textured_shader, textured_opt},
+        };
+
+#undef SHADER_PATH
+
+        for (int i = 0; i < vx_countof(sources); i++)
+        {
+            char* program_src;
+            usize program_size;
+
+            program_src = read_whole_file(sources[i].path, &program_size);
+
+            voxed_state::shader& shader = sources[i].shader;
+            shader.vertex = gpu_shader_create(
+                gpu, gpu_shader_type::vertex, program_src, program_size, "vertex_main");
+            shader.fragment = gpu_shader_create(
+                gpu, gpu_shader_type::fragment, program_src, program_size, "fragment_main");
+            shader.pipeline =
+                gpu_pipeline_create(gpu, shader.vertex, shader.fragment, sources[i].opt);
+            free(program_src);
+        }
+
+        state->global_constants.buffer =
+            gpu_buffer_create(gpu, sizeof(state->global_constants.data), gpu_buffer_type::constant);
+        state->wire_cube_constants.buffer = gpu_buffer_create(
+            gpu, sizeof(state->wire_cube_constants.data), gpu_buffer_type::constant);
+        state->voxel_grid_ruler_constants.buffer = gpu_buffer_create(
+            gpu, sizeof(state->voxel_grid_ruler_constants.data), gpu_buffer_type::constant);
+        state->color_wheel.buffer =
+            gpu_buffer_create(gpu, sizeof(state->color_wheel.model), gpu_buffer_type::constant);
     }
 
     return state;
@@ -683,8 +717,7 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                 float r = glm::length(float2{p.x, p.z});
                 if (r < 1.0f)
                 {
-                    float angle =
-                        remap_range(glm::atan(p.z, p.x), -float(M_PI), float(M_PI), 0.f, 1.f);
+                    float angle = remap_range(glm::atan(p.z, p.x), -float(pi), float(pi), 0.f, 1.f);
                     state->color_wheel_changed = true;
                     state->color_wheel_rgb = hsv_to_rgb(float3{angle, r, 1.f});
                 }
@@ -736,120 +769,89 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
     }
 }
 
-namespace
+void voxed_render(voxed_state* state, gpu_device* gpu, gpu_channel* channel)
 {
-void render_wire_cube(const voxed_state* vox_app, const float3& color, const float4x4& model_matrix)
-{
-    glUseProgram(vox_app->line_shader);
-    glUniform3f(2, color.r, color.g, color.b);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
+    //
+    // setup constants
+    //
 
-    glBindVertexArray(vox_app->wire_cube.vao);
-    glDrawElements(GL_LINES, vox_app->wire_cube.index_count, GL_UNSIGNED_INT, 0);
-}
+    // globals
 
-void render_solid_cube(
-    const voxed_state* vox_app,
-    const float3& color,
-    const float4x4& model_matrix)
-{
-    glUseProgram(vox_app->solid_shader);
-    glUniform3f(2, color.r, color.g, color.b);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
-
-    glBindVertexArray(vox_app->solid_cube.vao);
-    glDrawElements(GL_TRIANGLES, vox_app->solid_cube.index_count, GL_UNSIGNED_INT, 0);
-}
-
-void render_voxel_grid_lines(
-    const voxed_state* vox_app,
-    const float3& color,
-    const float4x4& grid_matrix)
-{
-    glUseProgram(vox_app->line_shader);
-    glUniform3f(2, color.r, color.g, color.b);
-
-    float3 translations[3] = {float3(0.f), float3(0.f), float3(0.f)};
-
-    for (int i = 0; i < axis_plane_count; i++)
     {
-        float3 n(0.f);
-        // the following code pertains to right-handed coordinate systems
-        n[(i + 2) % 3] = 1.f;
-        float3 forward_dir = forward(vox_app->camera);
+        state->global_constants.data.camera = state->camera.transform;
+    }
 
-        // if we're not facing the positive side of the plane, then we want to
-        // translate the grid ruler to the negative side of the plane
-        if (glm::dot(forward_dir, n) > 0.f)
+    // voxel grid rulers
+
+    {
+        float4x4 grid_matrix = {};
+        float3 translations[3] = {float3(0.f), float3(0.f), float3(0.f)};
+
+        for (int i = 0; i < axis_plane_count; i++)
         {
-            const float plane_translation = -vox_app->voxel_extents.s * (VX_GRID_SIZE / 2);
-            translations[(i + 2) % 3][(i + 2) % 3] = plane_translation;
-            translations[(i + 1) % 3][(i + 2) % 3] = plane_translation;
+            float3 n(0.f);
+            // the following code pertains to right-handed coordinate systems
+            n[(i + 2) % 3] = 1.f;
+            float3 forward_dir = forward(state->camera);
+
+            // if we're not facing the positive side of the plane, then we want to
+            // translate the grid ruler to the negative side of the plane
+            if (glm::dot(forward_dir, n) > 0.f)
+            {
+                const float plane_translation = -state->voxel_extents.s * (VX_GRID_SIZE / 2);
+                translations[(i + 2) % 3][(i + 2) % 3] = plane_translation;
+                translations[(i + 1) % 3][(i + 2) % 3] = plane_translation;
+            }
         }
-    }
-    for (int i = 0; i < axis_plane_count; i++)
-    {
 
-        float4x4 model_matrix = glm::translate(grid_matrix, translations[i]);
-        glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
-
-        const voxed_state::mesh& mesh = vox_app->voxel_grid_rulers[i];
-        glBindVertexArray(mesh.vao);
-        glDrawArrays(GL_LINES, 0, mesh.index_count);
-    }
-}
-
-void render_textured_quad(const voxed_state* vox_app, u32 texture, const float4x4& model_matrix)
-{
-    glUseProgram(vox_app->textured_shader);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(2, 0);
-    glUniformMatrix4fv(1, 1, GL_FALSE, (float*)&model_matrix);
-
-    glBindVertexArray(vox_app->quad.vao);
-    glDrawElements(GL_TRIANGLES, vox_app->quad.index_count, GL_UNSIGNED_INT, 0);
-}
-}
-
-void voxed_render(voxed_state* state)
-{
-    //
-    // fixed-function state
-    //
-
-    {
-        glEnable(GL_BLEND);
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_CULL_FACE);
-
-        glDisable(GL_SCISSOR_TEST);
-
-        glClearColor(1, 1, 1, 1);
-        glClearDepth(1);
-        glClearStencil(0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-        glFrontFace(GL_CCW);
-        glDepthFunc(GL_LEQUAL);
-    }
-
-    //
-    // common shader constants
-    //
-
-    {
-        u32 shaders[] = {state->line_shader, state->solid_shader, state->textured_shader};
-        for (int i = 0; i < vx_countof(shaders); i++)
+        for (int i = 0; i < axis_plane_count; ++i)
         {
-            glUseProgram(shaders[i]);
-            glUniformMatrix4fv(0, 1, GL_FALSE, (float*)&state->camera.transform);
+            auto& pl = state->voxel_grid_ruler_constants.data[i];
+            pl.model = glm::translate(grid_matrix, translations[i]);
+            pl.color = state->colors.grid;
         }
     }
 
-    //
+    // voxel cursors
+
+    {
+        float4x4 voxel_xform = {};
+
+        if (state->intersect.t < INFINITY)
+        {
+            voxel_xform =
+                glm::translate(
+                    float4x4{1.f},
+                    center(reconstruct_voxel_bounds(
+                        state->intersect.voxel_coords, state->scene_bounds, VX_GRID_SIZE)) +
+                        state->voxel_extents * state->intersect.normal) *
+                glm::scale(float4x4{1.f}, 0.5f * state->voxel_extents);
+        }
+
+        auto& sel = state->wire_cube_constants.data[voxed_state::wire_cube_constants::selection];
+        sel.model = voxel_xform;
+        sel.color = state->colors.selection;
+
+        auto& era = state->wire_cube_constants.data[voxed_state::wire_cube_constants::erase];
+        era.model = voxel_xform;
+        era.color = state->colors.erase;
+
+        auto& scb = state->wire_cube_constants.data[voxed_state::wire_cube_constants::scene_bounds];
+        scb.model = float4x4{};
+        scb.color = state->colors.cube;
+    }
+
+    // color wheel
+
+    {
+        state->color_wheel.model =
+            glm::translate(float4x4{1.f}, float3{2.5f, -1.f, 0.f}) *
+            glm::rotate(float4x4{1.f}, -(float)pi / 2.0f, float3{1.f, 0.f, 0.f});
+    }
+
     // voxels
-    //
+
+    int voxel_count = 0;
 
     for (int z = 0; z < VX_GRID_SIZE; z++)
         for (int y = 0; y < VX_GRID_SIZE; y++)
@@ -863,77 +865,181 @@ void voxed_render(voxed_state* state)
                     voxel_bounds.min =
                         state->scene_bounds.min + voxel_coords * state->voxel_extents;
                     voxel_bounds.max = voxel_bounds.min + state->voxel_extents;
-
-                    float4x4 model = glm::translate(float4x4{1.f}, center(voxel_bounds)) *
-                                     glm::scale(float4x4{1.f}, 0.5f * state->voxel_extents);
-
-                    render_solid_cube(state, state->voxel_grid[i].color, model);
+                    auto& vx = state->gpu_voxel_data[voxel_count++];
+                    vx.offset = center(voxel_bounds);
+                    vx.scale = 0.5f * state->voxel_extents.x;
+                    vx.color = float4(state->voxel_grid[i].color, 1.0f);
                 }
             }
 
     //
-    // voxel cursor
+    // buffer updates
     //
+
+    {
+        gpu_buffer_update(
+            gpu,
+            state->voxel_grid_ruler_constants.buffer,
+            state->voxel_grid_ruler_constants.data,
+            sizeof(state->voxel_grid_ruler_constants.data),
+            0);
+
+        gpu_buffer_update(
+            gpu,
+            state->global_constants.buffer,
+            &state->global_constants.data,
+            sizeof(state->global_constants.data),
+            0);
+
+        gpu_buffer_update(
+            gpu,
+            state->wire_cube_constants.buffer,
+            state->wire_cube_constants.data,
+            sizeof(state->wire_cube_constants.data),
+            0);
+
+        gpu_buffer_update(
+            gpu,
+            state->color_wheel.buffer,
+            &state->color_wheel.model,
+            sizeof(state->color_wheel.model),
+            0);
+
+        gpu_buffer_update(
+            gpu,
+            state->gpu_voxel_buffer,
+            state->gpu_voxel_data,
+            voxel_count * sizeof(voxed_state::gpu_voxel),
+            0);
+    }
+
+    //
+    // command submission
+    //
+
+    // grid rulers
+
+    {
+        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, state->voxel_grid_ruler_constants.buffer, 2);
+
+        for (int i = 0; i < axis_plane_count; ++i)
+        {
+            const voxed_state::mesh& mesh = state->voxel_grid_rulers[i];
+            gpu_channel_set_buffer_cmd(channel, mesh.vertices, 0);
+            gpu_channel_set_vertex_desc_cmd(channel, mesh.vertex_desc);
+            gpu_channel_draw_primitives_cmd(
+                channel, gpu_primitive_type::line, 0, mesh.vertex_count, 1, i);
+        }
+    }
+
+    // voxel cursors
 
     if (state->intersect.t < INFINITY)
     {
-        render_solid_cube(
-            state,
-            state->selection_color,
-            glm::translate(float4x4{1.f}, state->intersect.position) *
-                glm::scale(float4x4{1.f}, float3{0.005f}));
+        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
+        gpu_channel_set_vertex_desc_cmd(channel, state->wire_cube.vertex_desc);
 
         const u8* kb = SDL_GetKeyboardState(0);
 
         if (kb[SDL_SCANCODE_LSHIFT])
         {
-            render_wire_cube(
-                state,
-                state->erase_color,
-                glm::translate(
-                    float4x4{1.f},
-                    center(reconstruct_voxel_bounds(
-                        state->intersect.voxel_coords, state->scene_bounds, VX_GRID_SIZE))) *
-                    glm::scale(float4x4{1.f}, 0.5f * state->voxel_extents));
+            gpu_channel_draw_indexed_primitives_cmd(
+                channel,
+                gpu_primitive_type::line,
+                state->wire_cube.index_count,
+                gpu_index_type::u32,
+                state->wire_cube.indices,
+                0,
+                1,
+                0,
+                voxed_state::wire_cube_constants::erase);
         }
         else
         {
-            render_wire_cube(
-                state,
-                state->selection_color,
-                glm::translate(
-                    float4x4{1.f},
-                    center(reconstruct_voxel_bounds(
-                        state->intersect.voxel_coords, state->scene_bounds, VX_GRID_SIZE)) +
-                        state->voxel_extents * state->intersect.normal) *
-                    glm::scale(float4x4{1.f}, 0.5f * state->voxel_extents));
+            gpu_channel_draw_indexed_primitives_cmd(
+                channel,
+                gpu_primitive_type::line,
+                state->wire_cube.index_count,
+                gpu_index_type::u32,
+                state->wire_cube.indices,
+                0,
+                1,
+                0,
+                voxed_state::wire_cube_constants::selection);
         }
     }
 
-    //
-    // color wheel
-    //
-
-    render_textured_quad(
-        state,
-        state->color_wheel.tex,
-        glm::translate(float4x4{1.f}, float3{2.5f, -1.f, 0.f}) *
-            glm::rotate(float4x4{1.f}, -(float)M_PI / 2.0f, float3{1.f, 0.f, 0.f}));
-
-    //
-    // grid lines
-    //
+    // scene bounds
 
     {
-        glDepthMask(GL_FALSE);
-        render_voxel_grid_lines(state, state->grid_color, float4x4{});
-        render_wire_cube(state, state->cube_color, float4x4{});
-        glDepthMask(GL_TRUE);
+        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
+        gpu_channel_set_vertex_desc_cmd(channel, state->wire_cube.vertex_desc);
+        gpu_channel_draw_indexed_primitives_cmd(
+            channel,
+            gpu_primitive_type::line,
+            state->wire_cube.index_count,
+            gpu_index_type::u32,
+            state->wire_cube.indices,
+            0,
+            1,
+            0,
+            voxed_state::wire_cube_constants::scene_bounds);
+    }
+
+    // color wheel
+
+    {
+        gpu_channel_set_pipeline_cmd(channel, state->textured_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->quad.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, state->color_wheel.buffer, 2);
+        gpu_channel_set_vertex_desc_cmd(channel, state->quad.vertex_desc);
+        gpu_channel_set_texture_cmd(channel, state->color_wheel.texture, 0);
+        gpu_channel_set_sampler_cmd(channel, state->color_wheel.sampler, 0);
+        gpu_channel_draw_indexed_primitives_cmd(
+            channel,
+            gpu_primitive_type::triangle,
+            state->quad.index_count,
+            gpu_index_type::u32,
+            state->quad.indices,
+            0,
+            1,
+            0,
+            0);
+    }
+
+    // voxels
+
+    {
+        gpu_channel_set_pipeline_cmd(channel, state->solid_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->solid_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, state->gpu_voxel_buffer, 2);
+        gpu_channel_set_vertex_desc_cmd(channel, state->solid_cube.vertex_desc);
+        gpu_channel_draw_indexed_primitives_cmd(
+            channel,
+            gpu_primitive_type::triangle,
+            state->solid_cube.index_count,
+            gpu_index_type::u32,
+            state->solid_cube.indices,
+            0,
+            voxel_count,
+            0,
+            0);
     }
 }
 
 void voxed_quit(voxed_state* state)
-{ // TODO(johann): get rid of delete
+{
+    // TODO(johann): get rid of delete
     delete state;
 }
 }

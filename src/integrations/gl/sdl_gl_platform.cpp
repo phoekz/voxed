@@ -5,8 +5,23 @@
 #include "SDL.h"
 #define VX_GL_IMPLEMENTATION
 #include "gl.h"
-
 #include <cstdlib>
+
+// NOTE(vinht): Quote from ARB_base_instance extension page:
+//
+// 1) Does <baseinstance> offset gl_InstanceID?
+//
+// RESOLVED: No. gl_InstanceID always starts from zero and counts up by
+// one for each instance rendered. If the shader author requires the
+// actual value of the instance index, including the base instance, they
+// must pass the base instance as a uniform. In OpenGL, the vertex
+// attribute divisors are not passed implicitly to the shader anyway, so
+// the shader writer will need to take care of this regardless.
+//
+// To emulate how the base_instance works in ANY OTHER API, we must pass
+// it in ourselves.
+
+#define VX_BASE_INSTANCE_BINDING_SLOT 32
 
 namespace vx
 {
@@ -49,8 +64,8 @@ struct gl_pipeline
     u32 program;
 
     bool depth_test_enabled;
+    bool depth_write_enabled;
     bool culling_enabled;
-    bool scissor_test_enabled;
     bool blend_enabled;
 
     // TODO: blend function, comparison function?
@@ -77,7 +92,6 @@ struct gl_vertex_descriptor
 struct gl_device
 {
     SDL_GLContext context;
-    u32 dummy_vao;
 
     int2 display_size;
     float2 display_scale;
@@ -94,10 +108,9 @@ i32 gpu_convert_enum(gpu_buffer_type type)
         case gpu_buffer_type::index:
             return GL_ELEMENT_ARRAY_BUFFER;
         case gpu_buffer_type::constant:
-            return GL_UNIFORM_BUFFER;
+            return GL_SHADER_STORAGE_BUFFER;
         default:
             fatal("Invalid gpu_buffer_type value: %i", int(type));
-            return 0;
     }
 }
 
@@ -111,7 +124,6 @@ i32 gpu_convert_enum(gpu_index_type type)
             return GL_UNSIGNED_INT;
         default:
             fatal("Invalid gpu_index_type value: %i", int(type));
-            return 0;
     }
 }
 
@@ -135,7 +147,6 @@ i32 gpu_convert_enum(gpu_filter_mode mode)
             return GL_LINEAR;
         default:
             fatal("Invalid gpu_filter_mode value: %i", int(mode));
-            return 0;
     }
 }
 
@@ -149,7 +160,6 @@ i32 gpu_convert_enum(gpu_shader_type type)
             return GL_FRAGMENT_SHADER;
         default:
             fatal("Invalid gpu_shader_type value: %i", int(type));
-            return 0;
     }
 }
 
@@ -169,20 +179,15 @@ i32 gpu_convert_enum(gpu_primitive_type type)
             return GL_TRIANGLE_STRIP;
         default:
             fatal("Invalid gpu_primitive_type value: %i", int(type));
-            return 0;
     }
 }
 
 void set_capability(u32 capability, bool enabled)
 {
     if (enabled)
-    {
         glEnable(capability);
-    }
     else
-    {
         glDisable(capability);
-    }
 }
 }
 
@@ -224,7 +229,10 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
     SDL_GL_GetDrawableSize(sdl_window, &drawable_size.x, &drawable_size.y);
 
     gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
-    glGenVertexArrays(1, &device->dummy_vao);
+
+    u32 dummy_vao;
+    glGenVertexArrays(1, &dummy_vao);
+    glBindVertexArray(dummy_vao);
 
     glEnable(GL_FRAMEBUFFER_SRGB);
 
@@ -269,12 +277,8 @@ gpu_buffer* gpu_buffer_create(gpu_device* /*gpu*/, usize size, gpu_buffer_type t
 
     buffer.target = gpu_convert_enum(type);
 
-    i32 prev = 0;
-    glGetIntegerv(buffer.target, &prev);
-
     glBindBuffer(buffer.target, buffer.object);
     glBufferData(buffer.target, size, nullptr, GL_STATIC_DRAW);
-    glBindBuffer(buffer.target, prev);
 
     return (gpu_buffer*)(*(uptr*)&buffer);
 }
@@ -319,22 +323,42 @@ gpu_texture* gpu_texture_create(
 
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
-    i32 px_format = 0;
+    u32 px_internal_format = 0u;
     switch (format)
     {
         case gpu_pixel_format::rgba8_unorm:
+            px_internal_format = GL_RGBA8;
+            break;
+        case gpu_pixel_format::rgba8_unorm_srgb:
+            px_internal_format = GL_SRGB8_ALPHA8;
+            break;
+        default:
+            fatal("Unknown gpu_pixel_format (%d)", (int)format);
+    }
+
+    u32 px_format = 0u;
+    switch (format)
+    {
+        case gpu_pixel_format::rgba8_unorm:
+        case gpu_pixel_format::rgba8_unorm_srgb:
             px_format = GL_RGBA;
+            break;
+        default:
+            fatal("Unknown gpu_pixel_format (%d)", (int)format);
     }
 
-    i32 px_type = 0;
+    u32 px_type = 0u;
     switch (format)
     {
         case gpu_pixel_format::rgba8_unorm:
+        case gpu_pixel_format::rgba8_unorm_srgb:
             px_type = GL_UNSIGNED_BYTE;
+            break;
+        default:
+            fatal("Unknown gpu_pixel_format (%d)", (int)format);
     }
 
-    // here, the internalFormat is the same as the format
-    glTexImage2D(texture.target, 0, px_format, width, height, 0, px_format, px_type, data);
+    glTexImage2D(texture.target, 0, px_internal_format, width, height, 0, px_format, px_type, data);
 
     return (gpu_texture*)(*(uptr*)&texture);
 }
@@ -402,7 +426,7 @@ gpu_vertex_desc* gpu_vertex_desc_create(
                 break;
         }
 
-        i32 element_type = 0;
+        u32 element_type = 0u;
         switch (attributes[i].format)
         {
             case gpu_vertex_format::float1:
@@ -473,15 +497,24 @@ gpu_shader* gpu_shader_create(
     usize /*size*/,
     const char* /*main_function*/)
 {
-    const char* shader_define[] = {"#define VX_SHADER 0\n", "#define VX_SHADER 1\n"};
-    const char* defs[] = {"#version 440 core\n", shader_define[int(type)], (char*)data};
+    const char* prelude =
+        "#version 440 core\n"
+        "#define VX_VERTEX_SHADER 0\n"
+        "#define VX_FRAGMENT_SHADER 1\n"
+        "layout(location = " vx_xstr(VX_BASE_INSTANCE_BINDING_SLOT) ") uniform int VX_BASE_INSTANCE;\n"
+        "#define VX_INSTANCE_ID (gl_InstanceID + VX_BASE_INSTANCE)\n";
+    const char* shader_types[] = {
+        "#define VX_SHADER VX_VERTEX_SHADER\n", "#define VX_SHADER VX_FRAGMENT_SHADER\n",
+    };
+    const char* prologue = "#line 1\n";
+    const char* sources[] = {prelude, shader_types[int(type)], prologue, (char*)data};
 
     gl_shader shader = {};
     shader.object = glCreateShader(gpu_convert_enum(type));
     if (!shader.object)
         fatal("Failed to create shader!");
 
-    glShaderSource(shader.object, vx_countof(defs), (char**)defs, 0);
+    glShaderSource(shader.object, vx_countof(sources), (char**)sources, 0);
     glCompileShader(shader.object);
 
     i32 status;
@@ -519,8 +552,7 @@ gpu_pipeline* gpu_pipeline_create(
     pipeline.blend_enabled = options.blend_enabled;
     pipeline.culling_enabled = options.culling_enabled;
     pipeline.depth_test_enabled = options.depth_test_enabled;
-    pipeline.scissor_test_enabled = options.scissor_test_enabled;
-
+    pipeline.depth_write_enabled = options.depth_write_enabled;
     pipeline.program = glCreateProgram();
 
     if (!pipeline.program)
@@ -553,7 +585,17 @@ void gpu_pipeline_destroy(gpu_device* /*gpu*/, gpu_pipeline* pipeline_handle)
     glDeleteProgram(pipeline.program);
 }
 
-gpu_channel* gpu_channel_open(gpu_device* gpu) { return (gpu_channel*)gpu; }
+gpu_channel* gpu_channel_open(gpu_device* gpu)
+{
+    // TODO(vinht): We have to make sure the state is "clean" at this point
+    // because we don't have command buffers to precisely control this.
+    set_capability(GL_BLEND, false);
+    set_capability(GL_CULL_FACE, false);
+    set_capability(GL_DEPTH_TEST, false);
+    set_capability(GL_SCISSOR_TEST, false);
+    glDepthMask(true);
+    return (gpu_channel*)gpu;
+}
 
 void gpu_channel_close(gpu_device* gpu, gpu_channel* channel)
 {
@@ -576,22 +618,15 @@ void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args)
 void gpu_channel_set_buffer_cmd(gpu_channel* /*channel*/, gpu_buffer* buffer_handle, u32 index)
 {
     gl_buffer buffer = gpu_convert_handle(buffer_handle);
-    if (buffer.target == GL_UNIFORM_BUFFER)
-    {
-        glBindBufferBase(GL_UNIFORM_BUFFER, index, buffer.object);
-    }
+    if (buffer.target == GL_SHADER_STORAGE_BUFFER)
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, index, buffer.object);
     else
-    {
         glBindBuffer(buffer.target, buffer.object);
-    }
 }
 
-void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vertex_desc)
+void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* vertex_desc)
 {
-    gl_device* device = (gl_device*)channel;
     gl_vertex_descriptor* descriptor = (gl_vertex_descriptor*)vertex_desc;
-
-    glBindVertexArray(device->dummy_vao);
 
     for (u32 i = 0u; i < descriptor->attribute_count; i++)
     {
@@ -626,12 +661,11 @@ void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline_h
     gl_pipeline pipeline = gpu_convert_handle(pipeline_handle);
     device->current_pipeline = pipeline;
 
-    glBindVertexArray(device->dummy_vao);
-
     set_capability(GL_BLEND, pipeline.blend_enabled);
     set_capability(GL_CULL_FACE, pipeline.culling_enabled);
     set_capability(GL_DEPTH_TEST, pipeline.depth_test_enabled);
-    set_capability(GL_SCISSOR_TEST, pipeline.scissor_test_enabled);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(pipeline.depth_write_enabled);
 
     // TODO: these shouldn't be hardcoded here
     glBlendEquation(GL_FUNC_ADD);
@@ -645,6 +679,7 @@ void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
     gl_device* device = (gl_device*)channel;
     // The OpenGL screen coordinates are flipped w.r.t. to the y-axis
     // y-zero is at the top of the screen
+    set_capability(GL_SCISSOR_TEST, true);
     int fb_height = int(device->display_size.y * device->display_scale.y);
     glScissor(i32(rect->x), fb_height - int(rect->y + rect->h), i32(rect->w), i32(rect->h));
 }
@@ -658,9 +693,17 @@ void gpu_channel_draw_primitives_cmd(
     gpu_channel* /*channel*/,
     gpu_primitive_type primitive_type,
     u32 vertex_start,
-    u32 vertex_count)
+    u32 vertex_count,
+    u32 instance_count,
+    u32 base_instance)
 {
-    glDrawArrays(gpu_convert_enum(primitive_type), vertex_start, vertex_count);
+    glUniform1i(VX_BASE_INSTANCE_BINDING_SLOT, base_instance);
+    glDrawArraysInstancedBaseInstance(
+        gpu_convert_enum(primitive_type),
+        vertex_start,
+        vertex_count,
+        instance_count,
+        base_instance);
 }
 
 void gpu_channel_draw_indexed_primitives_cmd(
@@ -669,17 +712,23 @@ void gpu_channel_draw_indexed_primitives_cmd(
     u32 index_count,
     gpu_index_type index_type,
     gpu_buffer* index_buffer_handle,
-    u32 index_byte_offset)
+    u32 index_byte_offset,
+    u32 instance_count,
+    i32 base_vertex,
+    u32 base_instance)
 {
     gl_buffer index_buffer = gpu_convert_handle(index_buffer_handle);
     if (index_buffer.target != GL_ELEMENT_ARRAY_BUFFER)
         fatal("The index buffer provided was not created as an index buffer!");
     glBindBuffer(index_buffer.target, index_buffer.object);
-
-    glDrawElements(
+    glUniform1i(VX_BASE_INSTANCE_BINDING_SLOT, base_instance);
+    glDrawElementsInstancedBaseVertexBaseInstance(
         gpu_convert_enum(primitive_type),
         index_count,
         gpu_convert_enum(index_type),
-        (void*)uptr(index_byte_offset));
+        (void*)uptr(index_byte_offset),
+        instance_count,
+        base_vertex,
+        base_instance);
 }
 }
