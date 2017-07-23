@@ -27,8 +27,7 @@ for group in gl_version_groups_raw:
     gl_version = tuple(int(x) for x in re.findall("\d_\d", lines[0])[0].split("_"))
     gl_version_groups[gl_version] = lines
 
-gl_version_groups = { k: v for k, v in gl_version_groups.items() if k[0] < 4 }
-
+gl_version_groups = { k: v for k, v in gl_version_groups.items() if 10 * k[0] + k[1] < 45 }
 for k, v in gl_version_groups.items():
     lines = list(filter(lambda x: not re.match("#define GL_VERSION_\d_\d", x), v))
     defines = list(filter(lambda x: re.match("#define \w+[ ]+\w+", x), lines))
@@ -59,6 +58,7 @@ type_table = {
     "GLuint64": "vx::u64",
     "GLushort": "vx::u16",
     "void": "void",
+    "GLDEBUGPROC": "void",
 }
 
 def lex_type(line):
