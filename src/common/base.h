@@ -41,7 +41,6 @@
 #define VX_GRAPHICS_API_METAL 1
 #define VX_GRAPHICS_API_OPENGL 2
 
-
 #if defined(__linux__)
 #define VX_OS VX_OS_LINUX
 #define VX_OS_STRING "Linux"
