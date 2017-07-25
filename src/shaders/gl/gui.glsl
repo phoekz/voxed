@@ -4,7 +4,7 @@ layout(location = 0) in vec2 a_position;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec4 a_color;
 
-layout(binding = 1, column_major) uniform global_constants
+layout(binding = 1, column_major) buffer global_constants
 {
     mat4 u_projection;
 };
