@@ -1,7 +1,4 @@
 #include "imgui_sdl.h"
-#include "common/aliases.h"
-#include "common/error.h"
-#include "common/macros.h"
 #include "platform/gpu.h"
 #include "platform/filesystem.h"
 
@@ -213,9 +210,9 @@ bool imgui_init(platform* platform)
         char* program_src;
         usize program_size;
 
-#if VX_GRAPHICS_API == VX_METAL
+#if VX_GRAPHICS_API == VX_GRAPHICS_API_METAL
         program_src = read_whole_file("shaders/mtl/gui.metallib", &program_size);
-#elif VX_GRAPHICS_API == VX_OPENGL
+#elif VX_GRAPHICS_API == VX_GRAPHICS_API_OPENGL
         program_src = read_whole_file("shaders/gl/gui.glsl", &program_size);
 #endif
 

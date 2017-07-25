@@ -1,8 +1,10 @@
 #pragma once
 
-#include "imgui.h"
+#include "common/base.h"
 #include "platform/native_platform.h"
 #include "platform/gpu.h"
+
+#include <imgui.h>
 
 struct SDL_Window;
 union SDL_Event;

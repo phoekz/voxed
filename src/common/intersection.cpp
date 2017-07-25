@@ -1,9 +1,5 @@
-#include "intersection.h"
-#include "geometry.h"
-
-#include "gtx/norm.hpp"
-
-#include <algorithm>
+#include "common/intersection.h"
+#include "common/geometry.h"
 
 namespace vx
 {

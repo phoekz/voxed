@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/base.h"
 #include "platform/native_platform.h"
 #include "platform/gpu.h"
 

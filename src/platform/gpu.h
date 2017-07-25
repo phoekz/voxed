@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/aliases.h"
+#include "common/base.h"
 #include "platform/native_platform.h"
 
 namespace vx

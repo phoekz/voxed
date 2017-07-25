@@ -1,15 +1,9 @@
 #include "voxed.h"
-#include "common/error.h"
 #include "common/intersection.h"
 #include "common/math_utils.h"
-#include "common/macros.h"
 #include "common/mouse.h"
 #include "common/array.h"
 #include "platform/filesystem.h"
-#include "platform/gpu.h"
-
-#include "glm.hpp"
-#include "gtc/matrix_transform.hpp"
 
 #define VX_GRID_SIZE 16
 
@@ -555,10 +549,10 @@ voxed_state* voxed_create(platform* platform)
         textured_opt.depth_test_enabled = true;
         textured_opt.depth_write_enabled = true;
 
-#if VX_GRAPHICS_API == VX_OPENGL
-#define SHADER_PATH(name) "shaders/gl/" name ".glsl"
-#elif VX_GRAPHICS_API == VX_METAL
+#if VX_GRAPHICS_API == VX_GRAPHICS_API_METAL
 #define SHADER_PATH(name) "shaders/mtl/" name ".metallib"
+#elif VX_GRAPHICS_API == VX_GRAPHICS_API_OPENGL
+#define SHADER_PATH(name) "shaders/gl/" name ".glsl"
 #endif
 
         struct

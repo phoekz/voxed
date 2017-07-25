@@ -1,5 +1,4 @@
 #include "platform/gpu.h"
-#include "common/error.h"
 
 #include <SDL_syswm.h>
 

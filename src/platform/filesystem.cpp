@@ -1,7 +1,4 @@
 #include "platform/filesystem.h"
-#include "common/error.h"
-#include <cstdio>
-#include <cstdlib>
 
 namespace vx
 {

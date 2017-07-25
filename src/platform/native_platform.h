@@ -1,7 +1,6 @@
 #pragma once
 
-#include "common/aliases.h"
-#include "common/platform.h"
+#include "common/base.h"
 
 #include "SDL.h" // TODO(vinht): Remove once timing, events & inputs have been cleaned away.
 
