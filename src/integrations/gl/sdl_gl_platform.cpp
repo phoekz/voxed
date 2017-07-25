@@ -228,12 +228,6 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
 
     gl_device* device = (gl_device*)std::calloc(1, sizeof(gl_device));
 
-    u32 dummy_vao;
-    glGenVertexArrays(1, &dummy_vao);
-    glBindVertexArray(dummy_vao);
-
-    glEnable(GL_FRAMEBUFFER_SRGB);
-
     device->context = sdl_gl_context;
     device->display_size = display_size;
     device->display_scale = float2(
@@ -242,6 +236,17 @@ void platform_init(platform* platform, const char* title, int2 initial_size)
 
     platform->window = sdl_window;
     platform->gpu = (gpu_device*)device;
+
+    //
+    // global gl state
+    //
+
+    u32 dummy_vao;
+    glGenVertexArrays(1, &dummy_vao);
+    glBindVertexArray(dummy_vao);
+
+    glEnable(GL_FRAMEBUFFER_SRGB);
+    glFrontFace(GL_CCW);
 }
 
 void platform_quit(platform* platform)
@@ -378,9 +383,12 @@ gpu_sampler* gpu_sampler_create(
     if (!sampler.object)
         fatal("Sampler creation failed!");
 
+    // TODO(vinht): Mipmap filtering modes.
+    // TODO(vinht): Addressing modes.
     glSamplerParameteri(sampler.object, GL_TEXTURE_MAG_FILTER, gpu_convert_enum(mag));
     glSamplerParameteri(sampler.object, GL_TEXTURE_MIN_FILTER, gpu_convert_enum(min));
-    // TODO: mip map?
+    glSamplerParameteri(sampler.object, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(sampler.object, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     return (gpu_sampler*)(*(uptr*)&sampler);
 }
@@ -643,8 +651,8 @@ void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* 
 void gpu_channel_set_texture_cmd(gpu_channel* /*channel*/, gpu_texture* texture_handle, u32 index)
 {
     gl_texture texture = gpu_convert_handle(texture_handle);
+    glActiveTexture(GL_TEXTURE0 + index);
     glBindTexture(texture.target, texture.object);
-    glUniform1i(i32(index), 0);
 }
 
 void gpu_channel_set_sampler_cmd(gpu_channel* /*channel*/, gpu_sampler* sampler_handle, u32 index)

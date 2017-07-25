@@ -15,7 +15,6 @@ enums = [
     "GL_DEPTH_TEST",
     "GL_SCISSOR_TEST",
     # Winding Order
-    "GL_CW",
     "GL_CCW",
     # Blending
     "GL_FUNC_ADD",
@@ -44,7 +43,6 @@ enums = [
     # Filter Modes
     "GL_NEAREST",
     "GL_LINEAR",
-    "GL_LINEAR_MIPMAP_LINEAR",
     # Framebuffers
     "GL_COLOR_BUFFER_BIT",
     "GL_DEPTH_BUFFER_BIT",
@@ -97,8 +95,6 @@ functions = [
     "glBindTexture",
     "glActiveTexture",
     "glTexImage2D",
-    "glTexParameteri",
-    "glGenerateMipmap",
     "glPixelStorei",
     "glDeleteTextures",
     # Samplers
@@ -122,7 +118,6 @@ functions = [
     "glDrawArraysInstancedBaseInstance",
     "glDrawElementsInstancedBaseVertexBaseInstance",
     # Introspection
-    "glGetIntegerv",
     "glGetShaderiv",
     "glGetShaderInfoLog",
     "glGetProgramiv",

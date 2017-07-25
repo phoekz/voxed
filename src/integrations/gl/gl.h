@@ -17,7 +17,6 @@
 #define GL_LEQUAL 0x00000203u
 #define GL_SRC_ALPHA 0x00000302u
 #define GL_ONE_MINUS_SRC_ALPHA 0x00000303u
-#define GL_CW 0x00000900u
 #define GL_CCW 0x00000901u
 #define GL_CULL_FACE 0x00000b44u
 #define GL_DEPTH_TEST 0x00000b71u
@@ -32,7 +31,6 @@
 #define GL_RGBA 0x00001908u
 #define GL_NEAREST 0x00002600u
 #define GL_LINEAR 0x00002601u
-#define GL_LINEAR_MIPMAP_LINEAR 0x00002703u
 #define GL_TEXTURE_MAG_FILTER 0x00002800u
 #define GL_TEXTURE_MIN_FILTER 0x00002801u
 #define GL_TEXTURE_WRAP_S 0x00002802u
@@ -54,7 +52,6 @@
 
 extern void(*glFrontFace)(vx::u32 mode);
 extern void(*glScissor)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
-extern void(*glTexParameteri)(vx::u32 target, vx::u32 pname, vx::i32 param);
 extern void(*glTexImage2D)(vx::u32 target, vx::i32 level, vx::i32 internalformat, vx::i32 width, vx::i32 height, vx::i32 border, vx::u32 format, vx::u32 type, void* pixels);
 extern void(*glClear)(vx::u32 mask);
 extern void(*glClearColor)(float red, float green, float blue, float alpha);
@@ -66,7 +63,6 @@ extern void(*glEnable)(vx::u32 cap);
 extern void(*glBlendFunc)(vx::u32 sfactor, vx::u32 dfactor);
 extern void(*glDepthFunc)(vx::u32 func);
 extern void(*glPixelStorei)(vx::u32 pname, vx::i32 param);
-extern void(*glGetIntegerv)(vx::u32 pname, vx::i32* data);
 extern void(*glViewport)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
 extern void(*glBindTexture)(vx::u32 target, vx::u32 texture);
 extern void(*glDeleteTextures)(vx::i32 n, vx::u32* textures);
@@ -95,7 +91,6 @@ extern void(*glUseProgram)(vx::u32 program);
 extern void(*glUniform1i)(vx::i32 location, vx::i32 v0);
 extern void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 extern void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
-extern void(*glGenerateMipmap)(vx::u32 target);
 extern void(*glBindVertexArray)(vx::u32 array);
 extern void(*glGenVertexArrays)(vx::i32 n, vx::u32* arrays);
 extern void(*glGenSamplers)(vx::i32 count, vx::u32* samplers);
@@ -111,7 +106,6 @@ extern void vx_gl_init(void *(*addr)(const char *));
 
 void(*glFrontFace)(vx::u32 mode);
 void(*glScissor)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
-void(*glTexParameteri)(vx::u32 target, vx::u32 pname, vx::i32 param);
 void(*glTexImage2D)(vx::u32 target, vx::i32 level, vx::i32 internalformat, vx::i32 width, vx::i32 height, vx::i32 border, vx::u32 format, vx::u32 type, void* pixels);
 void(*glClear)(vx::u32 mask);
 void(*glClearColor)(float red, float green, float blue, float alpha);
@@ -123,7 +117,6 @@ void(*glEnable)(vx::u32 cap);
 void(*glBlendFunc)(vx::u32 sfactor, vx::u32 dfactor);
 void(*glDepthFunc)(vx::u32 func);
 void(*glPixelStorei)(vx::u32 pname, vx::i32 param);
-void(*glGetIntegerv)(vx::u32 pname, vx::i32* data);
 void(*glViewport)(vx::i32 x, vx::i32 y, vx::i32 width, vx::i32 height);
 void(*glBindTexture)(vx::u32 target, vx::u32 texture);
 void(*glDeleteTextures)(vx::i32 n, vx::u32* textures);
@@ -152,7 +145,6 @@ void(*glUseProgram)(vx::u32 program);
 void(*glUniform1i)(vx::i32 location, vx::i32 v0);
 void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
-void(*glGenerateMipmap)(vx::u32 target);
 void(*glBindVertexArray)(vx::u32 array);
 void(*glGenVertexArrays)(vx::i32 n, vx::u32* arrays);
 void(*glGenSamplers)(vx::i32 count, vx::u32* samplers);
@@ -166,7 +158,6 @@ void vx_gl_init(void *(*addr)(const char *))
 {
     glFrontFace = (void(*)(vx::u32))addr("glFrontFace");
     glScissor = (void(*)(vx::i32, vx::i32, vx::i32, vx::i32))addr("glScissor");
-    glTexParameteri = (void(*)(vx::u32, vx::u32, vx::i32))addr("glTexParameteri");
     glTexImage2D = (void(*)(vx::u32, vx::i32, vx::i32, vx::i32, vx::i32, vx::i32, vx::u32, vx::u32, void*))addr("glTexImage2D");
     glClear = (void(*)(vx::u32))addr("glClear");
     glClearColor = (void(*)(float, float, float, float))addr("glClearColor");
@@ -178,7 +169,6 @@ void vx_gl_init(void *(*addr)(const char *))
     glBlendFunc = (void(*)(vx::u32, vx::u32))addr("glBlendFunc");
     glDepthFunc = (void(*)(vx::u32))addr("glDepthFunc");
     glPixelStorei = (void(*)(vx::u32, vx::i32))addr("glPixelStorei");
-    glGetIntegerv = (void(*)(vx::u32, vx::i32*))addr("glGetIntegerv");
     glViewport = (void(*)(vx::i32, vx::i32, vx::i32, vx::i32))addr("glViewport");
     glBindTexture = (void(*)(vx::u32, vx::u32))addr("glBindTexture");
     glDeleteTextures = (void(*)(vx::i32, vx::u32*))addr("glDeleteTextures");
@@ -207,7 +197,6 @@ void vx_gl_init(void *(*addr)(const char *))
     glUniform1i = (void(*)(vx::i32, vx::i32))addr("glUniform1i");
     glVertexAttribPointer = (void(*)(vx::u32, vx::i32, vx::u32, vx::u8, vx::i32, void*))addr("glVertexAttribPointer");
     glBindBufferBase = (void(*)(vx::u32, vx::u32, vx::u32))addr("glBindBufferBase");
-    glGenerateMipmap = (void(*)(vx::u32))addr("glGenerateMipmap");
     glBindVertexArray = (void(*)(vx::u32))addr("glBindVertexArray");
     glGenVertexArrays = (void(*)(vx::i32, vx::u32*))addr("glGenVertexArrays");
     glGenSamplers = (void(*)(vx::i32, vx::u32*))addr("glGenSamplers");
