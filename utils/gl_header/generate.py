@@ -114,7 +114,7 @@ with open(args.output, "w") as file:
     p = pr()
     p("#pragma once")
     p()
-    p("#include \"common/aliases.h\"")
+    p("#include \"common/base.h\"")
     p()
     p("// clang-format off")
     p()

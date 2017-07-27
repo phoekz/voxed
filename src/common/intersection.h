@@ -1,6 +1,6 @@
 #pragma once
 
-#include "geometry.h"
+#include "common/geometry.h"
 
 namespace vx
 {

@@ -1,4 +1,4 @@
-#include "mouse.h"
+#include "common/mouse.h"
 #include "SDL_events.h"
 
 namespace vx

@@ -1,11 +1,9 @@
 #include "platform/gpu.h"
-#include "common/error.h"
-#include "common/macros.h"
 
-#include "SDL.h"
+#include <SDL.h>
+
 #define VX_GL_IMPLEMENTATION
 #include "gl.h"
-#include <cstdlib>
 
 // NOTE(vinht): Quote from ARB_base_instance extension page:
 //

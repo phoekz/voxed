@@ -1,7 +1,6 @@
 #pragma once
 
-#include "aliases.h"
-#include "gtx/norm.hpp"
+#include "common/base.h"
 
 namespace vx
 {

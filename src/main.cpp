@@ -1,20 +1,7 @@
 #include "voxed.h"
-#include "common/error.h"
+
 #include "common/mouse.h"
-#include "common/macros.h"
-
 #include "integrations/imgui/imgui_sdl.h"
-#include "glm.hpp"
-#include "gtc/matrix_transform.hpp"
-
-#include <algorithm>
-#define _USE_MATH_DEFINES
-#include <cmath>
-#include <iostream>
-
-// lol, windows
-#undef near
-#undef far
 
 namespace vx
 {
