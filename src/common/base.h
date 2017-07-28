@@ -72,7 +72,7 @@ static_assert(VX_OS != VX_OS_UNKNOWN, "Platform detection failed");
 #if VX_PLATFORM == VX_PLATFORM_WIN32
 #define VX_NO_RETURN __declspec(noreturn)
 #define VX_FORCE_INLINE __forceinline
-#elif VX_PLATFORM == VX_POSIX
+#elif VX_PLATFORM == VX_PLATFORM_POSIX
 #define VX_NO_RETURN _Noreturn
 #define VX_FORCE_INLINE __attribute__((always_inline))
 #endif
