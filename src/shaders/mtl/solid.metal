@@ -49,7 +49,7 @@ vertex v2f vertex_main(
 fragment float4 fragment_main(v2f in[[stage_in]])
 {
     float3 n = normalize(in.normal);
-    float3 ld = normalize(float3(1.0f));
+    float3 ld = normalize(float3(1.0f, 2.0f, 3.0f));
     float li = 0.5f + 0.5f * max(dot(n, ld), 0.0f);
     return float4(in.color.rgb * li, 1.0f);
 }

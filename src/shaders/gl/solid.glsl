@@ -45,7 +45,7 @@ out vec4 frag_color;
 void main()
 {
     vec3 n = normalize(v_normal);
-    vec3 ld = normalize(vec3(1,1,1));
+    vec3 ld = normalize(vec3(1.0, 2.0, 3.0));
     float l = 0.5 + 0.5 * max(dot(n, ld), 0.0);
     frag_color = vec4(l * v_color.rgb, 1.0);
 }
