@@ -483,6 +483,10 @@ voxed_state* voxed_create(platform* platform)
     //
 
     {
+        // Defaults
+
+        state->color_wheel_rgb = float3(1.0f);
+
         // Baking HSV color wheel into a texture.
 
         i32 w, h;
