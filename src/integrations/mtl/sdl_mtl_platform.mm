@@ -194,10 +194,9 @@ void gpu_buffer_update(gpu_device*, gpu_buffer* buffer, void* data, usize size, 
     [(id<MTLBuffer>)buffer didModifyRange:range];
 }
 
-void gpu_buffer_destroy(gpu_device* gpu, gpu_buffer* buffer)
+void gpu_buffer_destroy(gpu_device* /*gpu*/, gpu_buffer* buffer)
 {
-    (void)gpu;
-    (void)buffer;
+    [(id<MTLBuffer>)buffer release];
 }
 
 gpu_texture* gpu_texture_create(
@@ -249,10 +248,9 @@ gpu_texture* gpu_texture_create(
     return (gpu_texture*)texture;
 }
 
-void gpu_texture_destroy(gpu_device* gpu, gpu_texture* texture)
+void gpu_texture_destroy(gpu_device* /*gpu*/, gpu_texture* texture)
 {
-    (void)gpu;
-    (void)texture;
+    [(id<MTLTexture>)texture release];
 }
 
 gpu_sampler* gpu_sampler_create(
@@ -305,10 +303,9 @@ gpu_sampler* gpu_sampler_create(
     return (gpu_sampler*)sampler;
 }
 
-void gpu_sampler_destroy(gpu_device* gpu, gpu_sampler* sampler)
+void gpu_sampler_destroy(gpu_device* /*gpu*/, gpu_sampler* sampler)
 {
-    (void)gpu;
-    (void)sampler;
+    [(id<MTLSamplerState>)sampler release];
 }
 
 gpu_vertex_desc* gpu_vertex_desc_create(
@@ -443,10 +440,12 @@ gpu_pipeline* gpu_pipeline_create(
     return (gpu_pipeline*)mtlp;
 }
 
-void gpu_pipeline_destroy(gpu_device* gpu, gpu_pipeline* pipeline)
+void gpu_pipeline_destroy(gpu_device* /*gpu*/, gpu_pipeline* pipeline)
 {
-    (void)gpu;
-    (void)pipeline;
+    mtl_pipeline* mtlp = (mtl_pipeline*)pipeline;
+    [mtlp->pipeline release];
+    [mtlp->depth_stencil release];
+    std::free(mtlp);
 }
 
 gpu_channel* gpu_channel_open(gpu_device* gpu)
