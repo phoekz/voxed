@@ -611,7 +611,9 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
     //
 
     {
-        if (mouse_button_pressed(button::right))
+        const u8* kb = SDL_GetKeyboardState(0);
+
+        if (mouse_button_pressed(button::right) || kb[SDL_SCANCODE_SPACE])
         {
             auto delta = mouse_delta();
             on_camera_orbit(state->camera, float(delta.x), float(delta.y), dt);
