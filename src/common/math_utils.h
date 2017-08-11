@@ -29,4 +29,28 @@ constexpr T radians_to_degrees(T radians)
 {
     return (radians * T(180)) / T(pi);
 }
+
+template<typename T>
+constexpr T pow2(T x)
+{
+    return x * x;
+}
+
+template<typename T>
+constexpr T pow3(T x)
+{
+    return x * x * x;
+}
+
+template<typename T>
+constexpr T pows2(T a, T b, T x)
+{
+    return a + b * x;
+}
+
+template<typename T>
+constexpr T pows3(T a, T b, T c, T x)
+{
+    return a + b * x + c * x * x;
+}
 }

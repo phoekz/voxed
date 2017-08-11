@@ -4,6 +4,7 @@
 #include "common/mouse.h"
 #include "common/array.h"
 #include "platform/filesystem.h"
+#include "integrations/imgui/imgui_sdl.h"
 
 #define VX_GRID_SIZE 16
 
@@ -169,6 +170,7 @@ struct voxed_state
 
     mesh wire_cube, solid_cube, quad;
     mesh voxel_grid_rulers[axis_plane_count];
+    mesh voxel_mesh;
 
     struct
     {
@@ -182,7 +184,7 @@ struct voxed_state
     {
         gpu_shader *vertex, *fragment;
         gpu_pipeline* pipeline;
-    } line_shader, solid_shader, textured_shader;
+    } line_shader, solid_shader, textured_shader, voxel_mesh_shader;
 
     struct global_constants
     {
@@ -234,21 +236,18 @@ struct voxed_state
     float3 scene_extents;
     float3 voxel_extents;
     voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
-
-    // TODO(vinht): Temporary solution before we mesh the grid.
-    struct gpu_voxel
-    {
-        float3 offset;
-        float scale;
-        float4 color;
-    } * gpu_voxel_data;
-    gpu_buffer* gpu_voxel_buffer;
+    bool voxel_grid_is_dirty;
 
     // TODO(vinht): This is getting ridiculous.
     voxel_intersect_event intersect;
     bool color_wheel_changed;
     float3 color_wheel_hit_pos;
     float3 color_wheel_rgb;
+
+    struct
+    {
+        u32 voxel_solid, voxel_empty;
+    } stats;
 
     voxed_mode mode;
 };
@@ -265,21 +264,9 @@ voxed_state* voxed_create(platform* platform)
 
     {
         memset(state->voxel_grid, 0, sizeof(state->voxel_grid));
-        printf("%d x %d x %d voxel grid\n", VX_GRID_SIZE, VX_GRID_SIZE, VX_GRID_SIZE);
-        printf("%d voxels\n", VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE);
-        printf("sizeof(voxel_leaf) = %zu\n", sizeof(voxel_leaf));
-        printf(
-            "sizeof(voxel_grid) = %zu (%.2f MB)\n",
-            sizeof(state->voxel_grid),
-            sizeof(state->voxel_grid) * 1e-6);
         state->scene_extents = extents(state->scene_bounds);
         state->voxel_extents = state->scene_extents / (float)VX_GRID_SIZE;
-
-        usize gpu_voxel_data_size =
-            VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE * sizeof(voxed_state::gpu_voxel);
-        state->gpu_voxel_data = (voxed_state::gpu_voxel*)std::malloc(gpu_voxel_data_size);
-        state->gpu_voxel_buffer =
-            gpu_buffer_create(gpu, gpu_voxel_data_size, gpu_buffer_type::constant);
+        state->voxel_grid_is_dirty = false;
     }
 
     //
@@ -536,7 +523,7 @@ voxed_state* voxed_create(platform* platform)
     //
 
     {
-        gpu_pipeline_options line_opt = {}, solid_opt = {}, textured_opt = {};
+        gpu_pipeline_options line_opt = {}, solid_opt = {}, textured_opt = {}, voxel_mesh_opt = {};
 
         line_opt.blend_enabled = false;
         line_opt.culling_enabled = true;
@@ -553,6 +540,11 @@ voxed_state* voxed_create(platform* platform)
         textured_opt.depth_test_enabled = true;
         textured_opt.depth_write_enabled = true;
 
+        voxel_mesh_opt.blend_enabled = false;
+        voxel_mesh_opt.culling_enabled = true;
+        voxel_mesh_opt.depth_test_enabled = true;
+        voxel_mesh_opt.depth_write_enabled = true;
+
 #if VX_GRAPHICS_API == VX_GRAPHICS_API_METAL
 #define SHADER_PATH(name) "shaders/mtl/" name ".metallib"
 #elif VX_GRAPHICS_API == VX_GRAPHICS_API_OPENGL
@@ -568,6 +560,7 @@ voxed_state* voxed_create(platform* platform)
             {SHADER_PATH("line"), state->line_shader, line_opt},
             {SHADER_PATH("solid"), state->solid_shader, solid_opt},
             {SHADER_PATH("textured"), state->textured_shader, textured_opt},
+            {SHADER_PATH("voxel_mesh"), state->voxel_mesh_shader, voxel_mesh_opt},
         };
 
 #undef SHADER_PATH
@@ -741,8 +734,10 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                 if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
                     glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
+                    fprintf(stdout, "Erased voxel from %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
                     state->voxel_grid[i].flags = 0;
+                    state->voxel_grid_is_dirty = true;
                 }
             }
             else
@@ -752,10 +747,11 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                 if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
                     glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
-                    fprintf(stdout, "Inserted voxel at %d %d %d\n", p.x, p.y, p.z);
+                    fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
                     state->voxel_grid[i].flags |= voxel_flag_solid;
                     state->voxel_grid[i].color = state->color_wheel_rgb;
+                    state->voxel_grid_is_dirty = true;
                 }
                 else
                     fprintf(
@@ -767,9 +763,69 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
             }
         }
     }
+
+    //
+    // voxel statistics
+    //
+
+    if (state->voxel_grid_is_dirty)
+    {
+        state->stats.voxel_solid = state->stats.voxel_empty = 0;
+
+        for (int z = 0; z < VX_GRID_SIZE; z++)
+            for (int y = 0; y < VX_GRID_SIZE; y++)
+                for (int x = 0; x < VX_GRID_SIZE; x++)
+                {
+                    int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    if (state->voxel_grid[i].flags & voxel_flag_solid)
+                        state->stats.voxel_solid++;
+                    else
+                        state->stats.voxel_empty++;
+                }
+    }
 }
 
-void voxed_render(voxed_state* state, gpu_device* gpu, gpu_channel* channel)
+void voxed_gui(voxed_state* state)
+{
+    static bool hack_instant_load = true;
+    ImGui::Begin("voxed");
+    ImGui::Value("Resolution", VX_GRID_SIZE);
+    ImGui::Separator();
+    ImGui::Value("Voxel Leaf Bytes", (int)sizeof(voxel_leaf));
+    ImGui::Value("Voxel Grid Bytes", (int)sizeof(state->voxel_grid));
+    ImGui::Separator();
+    ImGui::Value("Total Voxels", pow3(VX_GRID_SIZE));
+    ImGui::Value("Empty Voxels", state->stats.voxel_empty);
+    ImGui::Value("Solid Voxels", state->stats.voxel_solid);
+    ImGui::Separator();
+    ImGui::Value("Vertices", state->voxel_mesh.vertex_count);
+    ImGui::Value("Triangles", state->voxel_mesh.index_count / 3);
+    ImGui::Separator();
+    if (ImGui::Button("Save"))
+    {
+        if (FILE* f = fopen("scene.vx", "wb"))
+        {
+            fwrite(state->voxel_grid, sizeof state->voxel_grid, 1, f);
+            fclose(f);
+            fprintf(stdout, "Saved scene\n");
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load") || hack_instant_load)
+    {
+        if (FILE* f = fopen("scene.vx", "rb"))
+        {
+            fread(state->voxel_grid, sizeof state->voxel_grid, 1, f);
+            fclose(f);
+            fprintf(stdout, "Loaded scene\n");
+            state->voxel_grid_is_dirty = true;
+        }
+        hack_instant_load = false;
+    }
+    ImGui::End();
+}
+
+void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
 {
     //
     // setup constants
@@ -849,28 +905,134 @@ void voxed_render(voxed_state* state, gpu_device* gpu, gpu_channel* channel)
             glm::rotate(float4x4{1.f}, -(float)pi / 2.0f, float3{1.f, 0.f, 0.f});
     }
 
-    // voxels
+    // voxel (mesh)
 
-    int voxel_count = 0;
+    if (state->voxel_grid_is_dirty)
+    {
+        fprintf(stdout, "(Re)generating voxel mesh\n");
 
-    for (int z = 0; z < VX_GRID_SIZE; z++)
-        for (int y = 0; y < VX_GRID_SIZE; y++)
-            for (int x = 0; x < VX_GRID_SIZE; x++)
-            {
-                int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                if (state->voxel_grid[i].flags & voxel_flag_solid)
+        struct vertex
+        {
+            float3 pos;
+            u32 rgba;
+            float3 nm;
+            u32 local_topo;
+        };
+
+        array<vertex> new_vbo;
+        array<int3> new_ibo;
+
+        // for each solid voxel:
+        //   for each face:
+        //     if neighbor is empty or out of bounds:
+        //       add face quad vertices and indices
+
+        for (int z = 0; z < VX_GRID_SIZE; z++)
+            for (int y = 0; y < VX_GRID_SIZE; y++)
+                for (int x = 0; x < VX_GRID_SIZE; x++)
                 {
-                    float3 voxel_coords{x, y, z};
-                    bounds3f voxel_bounds;
-                    voxel_bounds.min =
-                        state->scene_bounds.min + voxel_coords * state->voxel_extents;
-                    voxel_bounds.max = voxel_bounds.min + state->voxel_extents;
-                    auto& vx = state->gpu_voxel_data[voxel_count++];
-                    vx.offset = center(voxel_bounds);
-                    vx.scale = 0.5f * state->voxel_extents.x;
-                    vx.color = float4(state->voxel_grid[i].color, 1.0f);
+                    int ci = pows3(x, y, z, VX_GRID_SIZE);
+                    const voxel_leaf& ivx = state->voxel_grid[ci];
+
+                    // only process solid voxels
+                    if (~ivx.flags & voxel_flag_solid)
+                        continue;
+
+                    for (int di = 0; di < 6; di++)
+                    {
+                        bool make_face = false;
+                        int3 d(0), n(0);
+
+                        d[di % 3] = di / 3 ? -1 : 1;
+                        n.x = x + d.x, n.y = y + d.y, n.z = z + d.z;
+
+                        if (n.x >= 0 && n.y >= 0 && n.z >= 0 && n.x < VX_GRID_SIZE &&
+                            n.y < VX_GRID_SIZE && n.z < VX_GRID_SIZE)
+                        {
+                            int ni = pows3(n.x, n.y, n.z, VX_GRID_SIZE);
+                            const voxel_leaf& nvx = state->voxel_grid[ni];
+                            if (~nvx.flags & voxel_flag_solid)
+                                make_face = true;
+                        }
+                        else
+                            make_face = true;
+
+                        if (make_face)
+                        {
+                            const bounds3f& sb = state->scene_bounds;
+                            float3 color = ivx.color;
+                            vertex va, vb, vc, vd;
+
+                            // normal
+                            float3 nm(0.0f);
+                            nm[di % 3] = float(d[di % 3]);
+                            va.nm = vb.nm = vc.nm = vd.nm = nm;
+
+                            // position
+                            //   place 4 vertices to the voxel midpoint
+                            //   move vertices along the face normal
+                            //   move vertices to one of the face corners
+                            float half_ext = 0.5f * state->voxel_extents.x;
+                            float3 center(
+                                (x + 0.5f) / VX_GRID_SIZE,
+                                (y + 0.5f) / VX_GRID_SIZE,
+                                (z + 0.5f) / VX_GRID_SIZE);
+                            float3 pos;
+                            pos = glm::mix(sb.min, sb.max, center);
+                            pos += half_ext * nm;
+                            float3 fca(0.0f), fcb(0.0f), fcc(0.0f), fcd(0.0f);
+                            fca[(di + 1) % 3] = -half_ext, fca[(di + 2) % 3] = -half_ext;
+                            fcb[(di + 1) % 3] = +half_ext, fcb[(di + 2) % 3] = -half_ext;
+                            fcc[(di + 1) % 3] = +half_ext, fcc[(di + 2) % 3] = +half_ext;
+                            fcd[(di + 1) % 3] = -half_ext, fcd[(di + 2) % 3] = +half_ext;
+                            va.pos = pos + fca;
+                            vb.pos = pos + fcb;
+                            vc.pos = pos + fcc;
+                            vd.pos = pos + fcd;
+
+                            // color
+                            u32 rgba = 0;
+                            rgba |= u8(color.r * 0xFF) << 0;
+                            rgba |= u8(color.g * 0xFF) << 8;
+                            rgba |= u8(color.b * 0xFF) << 16;
+                            rgba |= 0xFF << 24;
+                            va.rgba = vb.rgba = vc.rgba = vd.rgba = rgba;
+
+                            // TODO(vinht): local topology
+                            va.local_topo = vb.local_topo = vc.local_topo = vd.local_topo = 0;
+
+                            // indices
+                            int idx = new_vbo.size();
+                            int3 ta{idx + 0, idx + 1, idx + 2};
+                            int3 tb{idx + 0, idx + 2, idx + 3};
+                            // flip winding
+                            if (glm::dot(nm, float3(1.0f)) < 0.0f)
+                                std::swap(ta.y, ta.z), std::swap(tb.y, tb.z);
+
+                            new_vbo.add(va), new_vbo.add(vb), new_vbo.add(vc), new_vbo.add(vd);
+                            new_ibo.add(ta), new_ibo.add(tb);
+                        }
+                    }
                 }
-            }
+
+        voxed_state::mesh& m = state->voxel_mesh;
+
+        if (m.vertices)
+            gpu_buffer_destroy(gpu, m.vertices);
+        if (m.indices)
+            gpu_buffer_destroy(gpu, m.indices);
+
+        m.vertices = gpu_buffer_create(gpu, new_vbo.byte_size(), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(gpu, new_ibo.byte_size(), gpu_buffer_type::index);
+
+        gpu_buffer_update(gpu, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
+        gpu_buffer_update(gpu, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
+
+        m.vertex_count = new_vbo.size();
+        m.index_count = 3 * new_ibo.size();
+
+        state->voxel_grid_is_dirty = false;
+    }
 
     //
     // buffer updates
@@ -904,15 +1066,11 @@ void voxed_render(voxed_state* state, gpu_device* gpu, gpu_channel* channel)
             &state->color_wheel.model,
             sizeof(state->color_wheel.model),
             0);
-
-        gpu_buffer_update(
-            gpu,
-            state->gpu_voxel_buffer,
-            state->gpu_voxel_data,
-            voxel_count * sizeof(voxed_state::gpu_voxel),
-            0);
     }
+}
 
+void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
+{
     //
     // command submission
     //
@@ -1018,20 +1176,19 @@ void voxed_render(voxed_state* state, gpu_device* gpu, gpu_channel* channel)
 
     // voxels
 
+    if (state->voxel_mesh.vertex_count)
     {
-        gpu_channel_set_pipeline_cmd(channel, state->solid_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->solid_cube.vertices, 0);
+        gpu_channel_set_pipeline_cmd(channel, state->voxel_mesh_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, state->voxel_mesh.vertices, 0);
         gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->gpu_voxel_buffer, 2);
-        gpu_channel_set_vertex_desc_cmd(channel, state->solid_cube.vertex_desc);
         gpu_channel_draw_indexed_primitives_cmd(
             channel,
             gpu_primitive_type::triangle,
-            state->solid_cube.index_count,
+            state->voxel_mesh.index_count,
             gpu_index_type::u32,
-            state->solid_cube.indices,
+            state->voxel_mesh.indices,
             0,
-            voxel_count,
+            1,
             0,
             0);
     }
