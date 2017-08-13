@@ -78,7 +78,6 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
             gpu, constants_buffer, (void*)ortho_projection, sizeof(ortho_projection), 0);
 
         gpu_channel_set_pipeline_cmd(channel, imgui_ctx.pipeline);
-        gpu_channel_set_texture_cmd(channel, imgui_ctx.font_texture, 0);
         gpu_channel_set_sampler_cmd(channel, imgui_ctx.font_sampler, 0);
     }
 
@@ -122,7 +121,7 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
                 draw_cmd->UserCallback(cmd_list, draw_cmd);
             else
             {
-                // TODO(vinht): Bind draw_cmd->TextureId.
+                gpu_channel_set_texture_cmd(channel, (gpu_texture*)draw_cmd->TextureId, 0);
 
                 u32 sx0, sy0, sx1, sy1;
                 sx0 = (u32)draw_cmd->ClipRect.x;
