@@ -175,8 +175,14 @@ struct voxed_state
     };
 
     mesh wire_cube, solid_cube, quad;
-    mesh voxel_grid_rulers[axis_plane_count];
     mesh voxel_mesh;
+
+    struct ruler
+    {
+        mesh mesh;
+        i32 offset;
+        bool enabled;
+    } rulers[axis_plane_count];
 
     struct
     {
@@ -399,52 +405,65 @@ voxed_state* voxed_create(platform* platform)
     }
 
     //
-    // voxel grid lines
+    // voxel rulers
     //
 
-    struct line
     {
-        float3 start{0.f};
-        float3 end{0.f};
-    };
+        // defaults
 
-    // assume the extents are the same in all directions
-    const float voxel_extent = state->voxel_extents.x;
-    const int line_count = (VX_GRID_SIZE / 2) + 1;
-    const float line_length = (VX_GRID_SIZE / 2) * voxel_extent;
+        state->rulers[axis_plane_xy].enabled = false;
+        state->rulers[axis_plane_yz].enabled = false;
+        state->rulers[axis_plane_zx].enabled = true;
 
-    array<line> grid_lines(axis_plane_count * 2 * line_count);
+        state->rulers[axis_plane_xy].offset = 0;
+        state->rulers[axis_plane_yz].offset = 0;
+        state->rulers[axis_plane_zx].offset = -VX_GRID_SIZE / 2;
 
-    for (int i = 0; i < axis_plane_count; i++)
-    {
-        for (int j = 0; j < line_count; j++)
+        struct line
         {
-            line& l1 = grid_lines.add();
-            line& l2 = grid_lines.add();
-
-            l1.start = float3(0.f);
-            l1.end = float3(0.f);
-            l1.start[(i + 1) % 3] = voxel_extent * j;
-            l1.end[(i + 1) % 3] = voxel_extent * j;
-            l1.end[i] = line_length;
-
-            l2.start[i] = voxel_extent * j;
-            l2.end[i] = voxel_extent * j;
-            l2.end[(i + 1) % 3] = line_length;
-        }
-
-        voxed_state::mesh& m = state->voxel_grid_rulers[i];
-        m.vertex_count = m.index_count = 2 * (u32)grid_lines.size();
-
-        m.vertices = gpu_buffer_create(gpu, grid_lines.byte_size(), gpu_buffer_type::vertex);
-        gpu_buffer_update(gpu, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
-
-        gpu_vertex_desc_attribute attribs[] = {
-            {gpu_vertex_format::float3, 0, 0},
+            float3 a{0.f}, b{0.f};
         };
-        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
 
-        grid_lines.clear();
+        // assume the extents are the same in all directions
+        const float voxel_extent = state->voxel_extents.x;
+        const int line_count = VX_GRID_SIZE + 1;
+        const float half_line_length = 0.5f * VX_GRID_SIZE * voxel_extent;
+
+        array<line> grid_lines(axis_plane_count * 2 * line_count);
+
+        for (int i = 0; i < axis_plane_count; i++)
+        {
+            for (int j = 0; j < line_count; j++)
+            {
+                float line_offset = -half_line_length + j * voxel_extent;
+
+                line& l0 = grid_lines.add();
+                l0.a[i] = -half_line_length;
+                l0.b[i] = +half_line_length;
+                l0.a[(i + 1) % 3] = line_offset;
+                l0.b[(i + 1) % 3] = line_offset;
+
+                line& l1 = grid_lines.add();
+                l1.a[i] = line_offset;
+                l1.b[i] = line_offset;
+                l1.a[(i + 1) % 3] = -half_line_length;
+                l1.b[(i + 1) % 3] = +half_line_length;
+            }
+
+            voxed_state::mesh& m = state->rulers[i].mesh;
+            m.vertex_count = m.index_count = 2 * (u32)grid_lines.size();
+
+            m.vertices = gpu_buffer_create(gpu, grid_lines.byte_size(), gpu_buffer_type::vertex);
+            gpu_buffer_update(gpu, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
+
+            gpu_vertex_desc_attribute attribs[] = {
+                {gpu_vertex_format::float3, 0, 0},
+            };
+            m.vertex_desc =
+                gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
+
+            grid_lines.clear();
+        }
     }
 
     //
@@ -684,7 +703,10 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
 
         for (int axis = 0; axis < 3; axis++)
         {
-            // TODO(vinht): Remove hard coded planes.
+            const auto& ruler = state->rulers[axis];
+
+            if (!ruler.enabled)
+                continue;
 
             // NOTE(vinht): Having a tiny extent in the third dimension
             // improves numerical precision in the ray-test. Remapping from
@@ -693,10 +715,11 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
             const float tiny_extent = 1.0f / (1 << 16);
             float t;
             float3 mn, mx;
-            mn[axis] = mn[(axis + 1) % 3] = -1.0f;
-            mx[axis] = mx[(axis + 1) % 3] = +1.0f;
-            mn[(axis + 2) % 3] = -tiny_extent;
-            mx[(axis + 2) % 3] = +tiny_extent;
+            mn = state->scene_bounds.min;
+            mx = state->scene_bounds.max;
+            float ext = state->voxel_extents.x;
+            mn[(axis + 2) % 3] = -tiny_extent + ext * ruler.offset;
+            mx[(axis + 2) % 3] = +tiny_extent + ext * ruler.offset;
 
             if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < state->intersect.t)
             {
@@ -843,6 +866,20 @@ void voxed_gui(voxed_state* state)
         }
         hack_instant_load = false;
     }
+    ImGui::Separator();
+    ImGui::Text("Rulers");
+    static const char* plane_names[] = {"XY", "YZ", "ZX"};
+    for (int i = 0; i < axis_plane_count; ++i)
+    {
+        voxed_state::ruler& ruler = state->rulers[i];
+        ImGui::PushID(i);
+        ImGui::Text("%s", plane_names[i]);
+        ImGui::SameLine();
+        ImGui::SliderInt("##slider", &ruler.offset, -VX_GRID_SIZE / 2, VX_GRID_SIZE / 2);
+        ImGui::SameLine();
+        ImGui::Checkbox("##checkbox", &ruler.enabled);
+        ImGui::PopID();
+    }
     ImGui::End();
 }
 
@@ -859,33 +896,16 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
         state->global_constants.data.flags = state->render_flags;
     }
 
-    // voxel grid rulers
+    // voxel rulers
 
     {
-        float4x4 grid_matrix = {};
-        float3 translations[3] = {float3(0.f), float3(0.f), float3(0.f)};
-
-        for (int i = 0; i < axis_plane_count; i++)
-        {
-            float3 n(0.f);
-            // the following code pertains to right-handed coordinate systems
-            n[(i + 2) % 3] = 1.f;
-            float3 forward_dir = forward(state->camera);
-
-            // if we're not facing the positive side of the plane, then we want to
-            // translate the grid ruler to the negative side of the plane
-            if (glm::dot(forward_dir, n) > 0.f)
-            {
-                const float plane_translation = -state->voxel_extents.s * (VX_GRID_SIZE / 2);
-                translations[(i + 2) % 3][(i + 2) % 3] = plane_translation;
-                translations[(i + 1) % 3][(i + 2) % 3] = plane_translation;
-            }
-        }
-
         for (int i = 0; i < axis_plane_count; ++i)
         {
             auto& pl = state->voxel_grid_ruler_constants.data[i];
-            pl.model = glm::translate(grid_matrix, translations[i]);
+            auto& ruler = state->rulers[i];
+            float3 offset{0.0f};
+            offset[(i + 2) % 3] = ruler.offset * state->voxel_extents.x;
+            pl.model = glm::translate(float4x4{}, offset);
             pl.color = state->colors.grid;
         }
     }
@@ -1191,7 +1211,7 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
     // command submission
     //
 
-    // grid rulers
+    // voxel rulers
 
     {
         gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
@@ -1200,7 +1220,12 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
 
         for (int i = 0; i < axis_plane_count; ++i)
         {
-            const voxed_state::mesh& mesh = state->voxel_grid_rulers[i];
+            const auto& ruler = state->rulers[i];
+
+            if (!ruler.enabled)
+                continue;
+
+            const voxed_state::mesh& mesh = ruler.mesh;
             gpu_channel_set_buffer_cmd(channel, mesh.vertices, 0);
             gpu_channel_set_vertex_desc_cmd(channel, mesh.vertex_desc);
             gpu_channel_draw_primitives_cmd(
