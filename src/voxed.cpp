@@ -192,6 +192,11 @@ struct voxed_state
         gpu_buffer* buffer;
     } color_wheel;
 
+    struct
+    {
+        float3 color_hsv;
+    } brush;
+
     struct shader
     {
         gpu_shader *vertex, *fragment;
@@ -251,11 +256,7 @@ struct voxed_state
     voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
     bool voxel_grid_is_dirty;
 
-    // TODO(vinht): This is getting ridiculous.
     voxel_intersect_event intersect;
-    bool color_wheel_changed;
-    float3 color_wheel_hit_pos;
-    float3 color_wheel_rgb;
 
     struct
     {
@@ -509,7 +510,7 @@ voxed_state* voxed_create(platform* platform)
     {
         // Defaults
 
-        state->color_wheel_rgb = float3(1.0f);
+        state->brush.color_hsv = float3(0.0f, 0.0f, 1.0f); // white
 
         // Baking HSV color wheel into a texture.
 
@@ -529,22 +530,18 @@ voxed_state* voxed_create(platform* platform)
                     float2{w, h},               // image space
                     float2{-1.f, -1.f},         // to
                     float2{1.f, 1.f});          // [-1,1]
-                p.y *= -1.f; // NOTE(vinht): In OpenGL, (0,0) starts from lower-left corner!
                 float r = glm::length(p);
                 if (r < 1.f)
                 {
                     float angle = remap_range(glm::atan(p.y, p.x), -float(pi), float(pi), 0.f, 1.f);
-                    float3 rgb = hsv_to_rgb(float3{angle, r, 1.f});
+                    float3 hsv = float3(angle, r, 1.f);
+                    float3 rgb = hsv_to_rgb(hsv);
                     for (int c = 0; c < 3; c++)
                         pixels[4 * i + c] = (u8)(255.f * rgb[c]);
                     pixels[4 * i + 3] = 255;
                 }
                 else
-                {
-                    for (int c = 0; c < 3; c++)
-                        pixels[4 * i + c] = 128;
-                    pixels[4 * i + 3] = 255;
-                }
+                    pixels[4 * i + 3] = 0;
             }
 
         state->color_wheel.texture =
@@ -734,29 +731,6 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                 state->intersect.normal = float3{0.f};
             }
         }
-
-        // color wheel
-
-        {
-            float3 mn{-1.f, -1.f, -1.f}, mx{1.f, -1.f, 1.f};
-            float3 off{2.5f, 0.f, 0.f};
-            bounds3f bounds{mn + off, mx + off};
-            state->color_wheel_changed = false;
-            float t;
-            if (ray_intersects_aabb(ray, bounds, &t) && t < state->intersect.t &&
-                mouse_button_down(button::left))
-            {
-                float3 p0 = ray.origin + ray.direction * t;
-                float3 p = remap_range(p0, bounds.min, bounds.max, float3{-1.f}, float3{1.f});
-                float r = glm::length(float2{p.x, p.z});
-                if (r < 1.0f)
-                {
-                    float angle = remap_range(glm::atan(p.z, p.x), -float(pi), float(pi), 0.f, 1.f);
-                    state->color_wheel_changed = true;
-                    state->color_wheel_rgb = hsv_to_rgb(float3{angle, r, 1.f});
-                }
-            }
-        }
     }
 
     //
@@ -791,7 +765,7 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                     fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
                     state->voxel_grid[i].flags |= voxel_flag_solid;
-                    state->voxel_grid[i].color = state->color_wheel_rgb;
+                    state->voxel_grid[i].color = hsv_to_rgb(state->brush.color_hsv);
                     state->voxel_grid_is_dirty = true;
                 }
                 else
@@ -880,6 +854,59 @@ void voxed_gui(voxed_state* state)
         ImGui::Checkbox("##checkbox", &ruler.enabled);
         ImGui::PopID();
     }
+    ImGui::Separator();
+    ImGui::Text("Color Wheel");
+    {
+        const float wheel_diameter = 200.0f /* pixels */;
+
+        // draw color wheel texture while caching key locations & sizes
+        ImVec2 pre = ImGui::GetCursorPos();
+        ImVec2 anchor = ImGui::GetCursorScreenPos();
+        ImGui::Image(state->color_wheel.texture, ImVec2(wheel_diameter, wheel_diameter));
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        ImVec2 post = ImGui::GetCursorPos();
+
+        // relative mouse position
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        ImVec2 rel_pos = ImVec2(mouse_pos.x - rmin.x, mouse_pos.y - rmin.y);
+
+        // normalized mouse position [-1, 1]
+        float normx, normy;
+        normx = remap_range(rel_pos.x, 0.0f, wheel_diameter, -1.0f, 1.0f);
+        normy = remap_range(rel_pos.y, 0.0f, wheel_diameter, -1.0f, 1.0f);
+        float dist_to_origin = glm::length(float2(normx, normy));
+
+        // update color value when a click has been detected within the wheel
+        if (mouse_button_pressed(button::left) && dist_to_origin < 1.0f)
+        {
+            float angle = remap_range(glm::atan(normy, normx), -float(pi), float(pi), 0.f, 1.f);
+            state->brush.color_hsv = float3(angle, dist_to_origin, 1.0f);
+        }
+
+        // absolute position of the mouse cursor
+        ImVec2 hovering_pos = anchor;
+        hovering_pos.x += rel_pos.x, hovering_pos.y += rel_pos.y;
+
+        // absolute position of the selected color
+        ImVec2 selected_pos = anchor;
+        selected_pos.x += 0.5f * (rmax.x - rmin.x);
+        selected_pos.y += 0.5f * (rmax.y - rmin.y);
+        float3 hsv = state->brush.color_hsv;
+        float angle = remap_range(hsv.x, 0.0f, 1.0f, -pi, pi);
+        selected_pos.x += 0.5f * wheel_diameter * hsv.y * std::cos(angle);
+        selected_pos.y += 0.5f * wheel_diameter * hsv.y * std::sin(angle);
+
+        // render both hovering color and selected color
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImColor selected_color = ImColor(0.05f, 0.05f, 0.05f, 1.0f);
+        ImColor hovering_color = ImColor(0.25f, 0.25f, 0.25f, 1.0f);
+        ImGui::SetCursorPos(pre);
+        if (ImGui::IsItemHovered() && dist_to_origin < 1.0f)
+            draw_list->AddCircle(hovering_pos, 4.0f, hovering_color, 12, 2.0f);
+        draw_list->AddCircle(selected_pos, 4.0f, selected_color, 12, 2.0f);
+        ImGui::SetCursorPos(post);
+    }
     ImGui::End();
 }
 
@@ -937,14 +964,6 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
         auto& scb = state->wire_cube_constants.data[voxed_state::wire_cube_constants::scene_bounds];
         scb.model = float4x4{};
         scb.color = state->colors.cube;
-    }
-
-    // color wheel
-
-    {
-        state->color_wheel.model =
-            glm::translate(float4x4{1.f}, float3{2.5f, -1.f, 0.f}) *
-            glm::rotate(float4x4{1.f}, -(float)pi / 2.0f, float3{1.f, 0.f, 0.f});
     }
 
     // voxel (mesh)
@@ -1291,28 +1310,6 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
             1,
             0,
             voxed_state::wire_cube_constants::scene_bounds);
-    }
-
-    // color wheel
-
-    {
-        gpu_channel_set_pipeline_cmd(channel, state->textured_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->quad.vertices, 0);
-        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->color_wheel.buffer, 2);
-        gpu_channel_set_vertex_desc_cmd(channel, state->quad.vertex_desc);
-        gpu_channel_set_texture_cmd(channel, state->color_wheel.texture, 0);
-        gpu_channel_set_sampler_cmd(channel, state->color_wheel.sampler, 0);
-        gpu_channel_draw_indexed_primitives_cmd(
-            channel,
-            gpu_primitive_type::triangle,
-            state->quad.index_count,
-            gpu_index_type::u32,
-            state->quad.indices,
-            0,
-            1,
-            0,
-            0);
     }
 
     // voxels
