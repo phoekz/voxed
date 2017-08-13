@@ -802,7 +802,7 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
 
 void voxed_gui(voxed_state* state)
 {
-    static bool hack_instant_load = true;
+    static bool hack_instant_load = false;
     ImGui::Begin("voxed");
     ImGui::Value("Resolution", VX_GRID_SIZE);
     ImGui::Separator();
@@ -839,6 +839,12 @@ void voxed_gui(voxed_state* state)
             state->voxel_grid_is_dirty = true;
         }
         hack_instant_load = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear"))
+    {
+        memset(state->voxel_grid, 0, sizeof(state->voxel_grid));
+        state->voxel_grid_is_dirty = true;
     }
     ImGui::Separator();
     ImGui::Text("Rulers");
