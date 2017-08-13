@@ -78,6 +78,16 @@ static_assert(VX_OS != VX_OS_UNKNOWN, "Platform detection failed");
 #endif
 
 //
+// intrinsics
+//
+
+#if VX_PLATFORM == VX_PLATFORM_WIN32
+#error "TODO(vinht): Implement popcnt."
+#elif VX_PLATFORM == VX_PLATFORM_POSIX
+#define vx_popcnt(x) __builtin_popcount(x)
+#endif
+
+//
 // macros
 //
 
