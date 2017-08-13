@@ -8,12 +8,13 @@ struct vertex_t
     packed_float3 pos;
     uint rgba;
     packed_float3 normal;
-    uint local_topo;
+    float ao;
 };
 
 struct global_t
 {
     float4x4 world_to_clip;
+    uint flags;
 };
 
 struct v2f
@@ -21,6 +22,13 @@ struct v2f
     float4 pos[[position]];
     float3 normal;
     float4 color;
+    float ao;
+};
+
+enum render_flag
+{
+    RENDER_FLAG_AMBIENT_OCCLUSION = 1 << 0,
+    RENDER_FLAG_DIRECTIONAL_LIGHT = 1 << 1,
 };
 
 vertex v2f vertex_main(
@@ -41,13 +49,16 @@ vertex v2f vertex_main(
     out.pos = global.world_to_clip * v;
     out.normal = vertices[vid].normal;
     out.color = c;
+    out.ao = global.flags & RENDER_FLAG_AMBIENT_OCCLUSION ? 1.0f - vertices[vid].ao : 1.0f;
     return out;
 }
 
-fragment float4 fragment_main(v2f in[[stage_in]])
+fragment float4 fragment_main(v2f in[[stage_in]], constant global_t& global[[buffer(1)]])
 {
     float3 n = normalize(in.normal);
-    float3 ld = normalize(float3(1.0f, 2.0f, 3.0f));
-    float li = 0.5f + 0.5f * max(dot(n, ld), 0.0f);
+    float3 ld = normalize(float3(1.0f, 3.0f, 1.0f));
+    float ao = smoothstep(0.0f, 1.0f, in.ao);
+    float l = global.flags & RENDER_FLAG_DIRECTIONAL_LIGHT ? max(dot(n, ld), 0.0f) : 1.0f;
+    float li = 0.25f + 0.75f * ao * l;
     return float4(in.color.rgb * li, 1.0f);
 }

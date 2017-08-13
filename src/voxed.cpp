@@ -159,6 +159,12 @@ bounds3f reconstruct_voxel_bounds(
 }
 }
 
+enum render_flag
+{
+    RENDER_FLAG_AMBIENT_OCCLUSION = 1 << 0,
+    RENDER_FLAG_DIRECTIONAL_LIGHT = 1 << 1,
+};
+
 struct voxed_state
 {
     struct mesh
@@ -191,6 +197,7 @@ struct voxed_state
         struct
         {
             float4x4 camera;
+            u32 flags;
         } data;
         gpu_buffer* buffer;
     } global_constants;
@@ -249,6 +256,8 @@ struct voxed_state
         u32 voxel_solid, voxel_empty;
     } stats;
 
+    u32 render_flags;
+
     voxed_mode mode;
 };
 
@@ -257,6 +266,15 @@ voxed_state* voxed_create(platform* platform)
     // TODO(johann): figure out a better way to set default values than calling the constructor
     voxed_state* state = new voxed_state();
     gpu_device* gpu = platform->gpu;
+
+    //
+    // defaults
+    //
+
+    {
+        state->render_flags |= RENDER_FLAG_AMBIENT_OCCLUSION;
+        state->render_flags |= RENDER_FLAG_DIRECTIONAL_LIGHT;
+    }
 
     //
     // voxel grid
@@ -801,6 +819,9 @@ void voxed_gui(voxed_state* state)
     ImGui::Value("Vertices", state->voxel_mesh.vertex_count);
     ImGui::Value("Triangles", state->voxel_mesh.index_count / 3);
     ImGui::Separator();
+    ImGui::CheckboxFlags("Ambient Occlusion", &state->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
+    ImGui::CheckboxFlags("Directional Light", &state->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
+    ImGui::Separator();
     if (ImGui::Button("Save"))
     {
         if (FILE* f = fopen("scene.vx", "wb"))
@@ -835,6 +856,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
 
     {
         state->global_constants.data.camera = state->camera.transform;
+        state->global_constants.data.flags = state->render_flags;
     }
 
     // voxel grid rulers
@@ -916,7 +938,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
             float3 pos;
             u32 rgba;
             float3 nm;
-            u32 local_topo;
+            float ao;
         };
 
         array<vertex> new_vbo;
@@ -932,6 +954,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                 for (int x = 0; x < VX_GRID_SIZE; x++)
                 {
                     int ci = pows3(x, y, z, VX_GRID_SIZE);
+                    int3 c = int3(x, y, z);
                     const voxel_leaf& ivx = state->voxel_grid[ci];
 
                     // only process solid voxels
@@ -944,7 +967,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                         int3 d(0), n(0);
 
                         d[di % 3] = di / 3 ? -1 : 1;
-                        n.x = x + d.x, n.y = y + d.y, n.z = z + d.z;
+                        n = c + d;
 
                         if (n.x >= 0 && n.y >= 0 && n.z >= 0 && n.x < VX_GRID_SIZE &&
                             n.y < VX_GRID_SIZE && n.z < VX_GRID_SIZE)
@@ -998,13 +1021,106 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                             rgba |= 0xFF << 24;
                             va.rgba = vb.rgba = vc.rgba = vd.rgba = rgba;
 
-                            // TODO(vinht): local topology
-                            va.local_topo = vb.local_topo = vc.local_topo = vd.local_topo = 0;
+                            // ambient occlusion
+                            //
+                            // Credits to:
+                            // https://0fps.net/2013/07/03/ambient-occlusion-for-minecraft-like-worlds/
+                            //
+                            // Search all the s's around x in the normal
+                            // direction.
+                            //
+                            //   top view   side views
+                            //   [s][s][s]  [s][s][s]  [s][s][s]  [s][s][s]  [s][s][s]
+                            //   [s][x][s]     [x]        [x]        [x]        [x]
+                            //   [s][s][s]
+                            //
+                            //   [7][6][5]  [1][2][3]  [3][4][5]  [5][6][7]  [7][0][1]
+                            //   [0][x][4]     [x]        [x]        [x]        [x]
+                            //   [1][2][3]
+                            //
+                            // With this layout we can mask 3 bits at the time
+                            // in offsets of two like so:
+                            //
+                            //   012345670
+                            //   aaa||||||
+                            //     bbb||||
+                            //       ccc||
+                            //         ddd
+
+                            // clang-format off
+                            static const int2 search_dirs[] =
+                            {
+                                int2(-1, +0), // 0
+                                int2(-1, -1), // 1
+                                int2(+0, -1), // 2
+                                int2(+1, -1), // 3
+                                int2(+1, +0), // 4
+                                int2(+1, +1), // 5
+                                int2(+0, +1), // 6
+                                int2(-1, +1), // 7
+                            };
+                            static const float symmetries[] =
+                            {
+                                0.0f, // case 0 - none
+                                0.5f, // case 1 - edge
+                                0.5f, // case 2 - edge + corner
+                                1.0f, // case 3 - corner
+                            };
+                            // clang-format on
+
+                            u32 mask = 0;
+
+                            for (int search_dir = 0; search_dir < 8; search_dir++)
+                            {
+                                int3 s;
+                                s[di % 3] = n[di % 3];
+                                s[(di + 1) % 3] = n[(di + 1) % 3] + search_dirs[search_dir][0];
+                                s[(di + 2) % 3] = n[(di + 2) % 3] + search_dirs[search_dir][1];
+
+                                if (s.x >= 0 && s.y >= 0 && s.z >= 0 && s.x < VX_GRID_SIZE &&
+                                    s.y < VX_GRID_SIZE && s.z < VX_GRID_SIZE)
+                                {
+                                    int si = pows3(s.x, s.y, s.z, VX_GRID_SIZE);
+                                    const voxel_leaf& svx = state->voxel_grid[si];
+                                    if (svx.flags & voxel_flag_solid)
+                                        mask |= 1 << search_dir;
+                                }
+                            }
+
+                            // NOTE(vinht): Trick, copy 0th bit to 8th bit, so
+                            // we can mask out 3 bits per corner without
+                            // special cases.
+                            mask |= (mask & 0x1) << 8;
+
+                            u32 maska = (mask >> 0) & 0x7;
+                            u32 maskb = (mask >> 2) & 0x7;
+                            u32 maskc = (mask >> 4) & 0x7;
+                            u32 maskd = (mask >> 6) & 0x7;
+                            u32 cnta = vx_popcnt(maska);
+                            u32 cntb = vx_popcnt(maskb);
+                            u32 cntc = vx_popcnt(maskc);
+                            u32 cntd = vx_popcnt(maskd);
+                            va.ao = maska == 0x5 ? symmetries[3] : symmetries[cnta];
+                            vb.ao = maskb == 0x5 ? symmetries[3] : symmetries[cntb];
+                            vc.ao = maskc == 0x5 ? symmetries[3] : symmetries[cntc];
+                            vd.ao = maskd == 0x5 ? symmetries[3] : symmetries[cntd];
 
                             // indices
                             int idx = new_vbo.size();
-                            int3 ta{idx + 0, idx + 1, idx + 2};
-                            int3 tb{idx + 0, idx + 2, idx + 3};
+                            int3 ta, tb;
+                            // NOTE(vinht): Flip triangulation based on sum of
+                            // AO values of the two diagonals to avoid
+                            // interpolation artifacts.
+                            if (va.ao + vc.ao < vb.ao + vd.ao)
+                            {
+                                ta = int3(idx + 0, idx + 1, idx + 2);
+                                tb = int3(idx + 0, idx + 2, idx + 3);
+                            }
+                            else
+                            {
+                                ta = int3(idx + 0, idx + 1, idx + 3);
+                                tb = int3(idx + 1, idx + 2, idx + 3);
+                            }
                             // flip winding
                             if (glm::dot(nm, float3(1.0f)) < 0.0f)
                                 std::swap(ta.y, ta.z), std::swap(tb.y, tb.z);
