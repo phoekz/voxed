@@ -91,6 +91,7 @@ int main(int /*argc*/, char** /*argv*/)
 
         {
             vx::voxed_update(voxed, app.platform, app.time.delta);
+            vx::voxed_gpu_update(voxed, app.platform.gpu);
         }
 
         // gui
@@ -106,8 +107,6 @@ int main(int /*argc*/, char** /*argv*/)
 
         {
             vx::gpu_device* gpu = app.platform.gpu;
-            vx::voxed_gpu_update(voxed, gpu);
-
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
             vx::gpu_clear_cmd_args clear_args{app.render.bg_color, 1.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
