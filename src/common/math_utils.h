@@ -53,4 +53,16 @@ constexpr T pows3(T a, T b, T c, T x)
 {
     return a + b * x + c * x * x;
 }
+
+template<typename T>
+VX_FORCE_INLINE T min2(const T& a, const T& b)
+{
+    return a < b ? a : b;
+}
+
+template<typename T>
+VX_FORCE_INLINE T max2(const T& a, const T& b)
+{
+    return a > b ? a : b;
+}
 }
