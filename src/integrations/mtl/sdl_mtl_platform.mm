@@ -308,54 +308,6 @@ void gpu_sampler_destroy(gpu_device* /*gpu*/, gpu_sampler* sampler)
     [(id<MTLSamplerState>)sampler release];
 }
 
-gpu_vertex_desc* gpu_vertex_desc_create(
-    gpu_device*,
-    gpu_vertex_desc_attribute* attributes,
-    u32 attribute_count,
-    u32 vertex_stride)
-{
-    MTLVertexDescriptor* vertex_desc = [[MTLVertexDescriptor alloc] init];
-    [vertex_desc retain];
-
-    for (u32 i = 0; i < attribute_count; ++i)
-    {
-        switch (attributes[i].format)
-        {
-            case gpu_vertex_format::float1:
-                vertex_desc.attributes[i].format = MTLVertexFormatFloat;
-                break;
-            case gpu_vertex_format::float2:
-                vertex_desc.attributes[i].format = MTLVertexFormatFloat2;
-                break;
-            case gpu_vertex_format::float3:
-                vertex_desc.attributes[i].format = MTLVertexFormatFloat3;
-                break;
-            case gpu_vertex_format::float4:
-                vertex_desc.attributes[i].format = MTLVertexFormatFloat4;
-                break;
-            case gpu_vertex_format::rgba8_unorm:
-                vertex_desc.attributes[i].format = MTLVertexFormatUChar4Normalized;
-                break;
-            default:
-                fatal("Invalid vertex format: %d", attributes[i].format);
-        }
-
-        vertex_desc.attributes[i].bufferIndex = attributes[i].buffer_index;
-        vertex_desc.attributes[i].offset = attributes[i].offset;
-    }
-
-    vertex_desc.layouts[0].stride = vertex_stride;
-    vertex_desc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-    return (gpu_vertex_desc*)vertex_desc;
-}
-
-void gpu_vertex_desc_destroy(gpu_device* gpu, gpu_vertex_desc* vertex_desc)
-{
-    (void)gpu;
-    (void)vertex_desc;
-}
-
 gpu_shader* gpu_shader_create(
     gpu_device* gpu,
     gpu_shader_type,
@@ -467,8 +419,6 @@ void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 in
     [encoder setVertexBuffer:(id<MTLBuffer>)buffer offset:0 atIndex:index];
     [encoder setFragmentBuffer:(id<MTLBuffer>)buffer offset:0 atIndex:index];
 }
-
-void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* /*vertex_desc*/) {}
 
 void gpu_channel_set_texture_cmd(gpu_channel* channel, gpu_texture* texture, u32 index)
 {
