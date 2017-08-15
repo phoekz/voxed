@@ -102,7 +102,7 @@ i32 gpu_convert_enum(gpu_buffer_type type)
     switch (type)
     {
         case gpu_buffer_type::vertex:
-            return GL_ARRAY_BUFFER;
+            return GL_SHADER_STORAGE_BUFFER;
         case gpu_buffer_type::index:
             return GL_ELEMENT_ARRAY_BUFFER;
         case gpu_buffer_type::constant:
@@ -399,103 +399,6 @@ void gpu_sampler_destroy(gpu_device* /*gpu*/, gpu_sampler* sampler_handle)
     glDeleteSamplers(1, &sampler.object);
 }
 
-gpu_vertex_desc* gpu_vertex_desc_create(
-    gpu_device* /*gpu*/,
-    gpu_vertex_desc_attribute* attributes,
-    u32 attribute_count,
-    u32 vertex_stride)
-{
-    gl_vertex_attribute* gl_attributes =
-        (gl_vertex_attribute*)std::calloc(attribute_count, sizeof(gl_vertex_attribute));
-    uptr offset = 0u;
-    for (u32 i = 0u; i < attribute_count; i++)
-    {
-        u32 element_count = 0u;
-        switch (attributes[i].format)
-        {
-            case gpu_vertex_format::float1:
-                element_count = 1u;
-                break;
-            case gpu_vertex_format::float2:
-                element_count = 2u;
-                break;
-            case gpu_vertex_format::float3:
-                element_count = 3u;
-                break;
-            case gpu_vertex_format::float4:
-                element_count = 4u;
-                break;
-            case gpu_vertex_format::rgba8_unorm:
-                element_count = 4u;
-                break;
-            default:
-                break;
-        }
-
-        u32 element_type = 0u;
-        switch (attributes[i].format)
-        {
-            case gpu_vertex_format::float1:
-            case gpu_vertex_format::float2:
-            case gpu_vertex_format::float3:
-            case gpu_vertex_format::float4:
-                element_type = GL_FLOAT;
-                break;
-            case gpu_vertex_format::rgba8_unorm:
-                element_type = GL_UNSIGNED_BYTE;
-                break;
-            default:
-                break;
-        }
-
-        uptr element_size = 0u;
-        switch (attributes[i].format)
-        {
-            case gpu_vertex_format::float1:
-                element_size = 4u;
-                break;
-            case gpu_vertex_format::float2:
-                element_size = 8u;
-                break;
-            case gpu_vertex_format::float3:
-                element_size = 12u;
-                break;
-            case gpu_vertex_format::float4:
-                element_size = 16u;
-                break;
-            case gpu_vertex_format::rgba8_unorm:
-                element_size = 4u;
-                break;
-            default:
-                break;
-        }
-
-        gl_attributes[i].index = attributes[i].buffer_index;
-        gl_attributes[i].elements = element_count;
-        gl_attributes[i].normalized =
-            attributes[i].format == gpu_vertex_format::rgba8_unorm ? GL_TRUE : GL_FALSE;
-        gl_attributes[i].type = element_type;
-        gl_attributes[i].offset = (const void*)offset;
-
-        offset += element_size;
-    }
-
-    gl_vertex_descriptor* descriptor =
-        (gl_vertex_descriptor*)std::calloc(1, sizeof(gl_vertex_descriptor));
-    descriptor->attributes = gl_attributes;
-    descriptor->attribute_count = attribute_count;
-    descriptor->stride = vertex_stride;
-
-    return (gpu_vertex_desc*)descriptor;
-}
-
-void gpu_vertex_desc_destroy(gpu_device* /*gpu*/, gpu_vertex_desc* vertex_desc)
-{
-    gl_vertex_descriptor* descriptor = (gl_vertex_descriptor*)vertex_desc;
-    std::free(descriptor->attributes);
-    std::free(descriptor);
-}
-
 gpu_shader* gpu_shader_create(
     gpu_device* /*gpu*/,
     gpu_shader_type type,
@@ -628,24 +531,6 @@ void gpu_channel_set_buffer_cmd(gpu_channel* /*channel*/, gpu_buffer* buffer_han
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, index, buffer.object);
     else
         glBindBuffer(buffer.target, buffer.object);
-}
-
-void gpu_channel_set_vertex_desc_cmd(gpu_channel* /*channel*/, gpu_vertex_desc* vertex_desc)
-{
-    gl_vertex_descriptor* descriptor = (gl_vertex_descriptor*)vertex_desc;
-
-    for (u32 i = 0u; i < descriptor->attribute_count; i++)
-    {
-        const gl_vertex_attribute& attrib = descriptor->attributes[i];
-        glEnableVertexAttribArray(attrib.index);
-        glVertexAttribPointer(
-            attrib.index,
-            attrib.elements,
-            attrib.type,
-            attrib.normalized,
-            descriptor->stride,
-            (void*)attrib.offset);
-    }
 }
 
 void gpu_channel_set_texture_cmd(gpu_channel* /*channel*/, gpu_texture* texture_handle, u32 index)

@@ -170,7 +170,6 @@ struct voxed_state
     struct mesh
     {
         gpu_buffer *vertices, *indices;
-        gpu_vertex_desc* vertex_desc;
         u32 vertex_count, index_count;
     };
 
@@ -321,11 +320,6 @@ voxed_state* voxed_create(platform* platform)
         gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
         gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
 
-        gpu_vertex_desc_attribute attribs[] = {
-            {gpu_vertex_format::float3, 0, 0},
-        };
-        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
-
         state->wire_cube.vertex_count = vx_countof(vertices);
         state->wire_cube.index_count = 2 * vx_countof(indices);
     }
@@ -395,12 +389,6 @@ voxed_state* voxed_create(platform* platform)
         gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
         gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
 
-        gpu_vertex_desc_attribute attribs[] = {
-            {gpu_vertex_format::float3, 0, 0}, {gpu_vertex_format::float3, 1, sizeof(float3)},
-        };
-
-        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(vertex));
-
         state->solid_cube.vertex_count = vx_countof(vertices);
         state->solid_cube.index_count = 3 * vx_countof(indices);
     }
@@ -457,12 +445,6 @@ voxed_state* voxed_create(platform* platform)
             m.vertices = gpu_buffer_create(gpu, grid_lines.byte_size(), gpu_buffer_type::vertex);
             gpu_buffer_update(gpu, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
 
-            gpu_vertex_desc_attribute attribs[] = {
-                {gpu_vertex_format::float3, 0, 0},
-            };
-            m.vertex_desc =
-                gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(float3));
-
             grid_lines.clear();
         }
     }
@@ -492,12 +474,6 @@ voxed_state* voxed_create(platform* platform)
 
         gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
         gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
-
-        gpu_vertex_desc_attribute attribs[] = {
-            {gpu_vertex_format::float3, 0, 0}, {gpu_vertex_format::float2, 1, sizeof(float3)},
-        };
-
-        m.vertex_desc = gpu_vertex_desc_create(gpu, attribs, vx_countof(attribs), sizeof(vertex));
 
         state->quad.vertex_count = vx_countof(vertices);
         state->quad.index_count = 3 * vx_countof(indices);
@@ -1252,7 +1228,6 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
 
             const voxed_state::mesh& mesh = ruler.mesh;
             gpu_channel_set_buffer_cmd(channel, mesh.vertices, 0);
-            gpu_channel_set_vertex_desc_cmd(channel, mesh.vertex_desc);
             gpu_channel_draw_primitives_cmd(
                 channel, gpu_primitive_type::line, 0, mesh.vertex_count, 1, i);
         }
@@ -1266,7 +1241,6 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
         gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
         gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
         gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
-        gpu_channel_set_vertex_desc_cmd(channel, state->wire_cube.vertex_desc);
 
         const u8* kb = SDL_GetKeyboardState(0);
 
@@ -1305,7 +1279,6 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
         gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
         gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
         gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
-        gpu_channel_set_vertex_desc_cmd(channel, state->wire_cube.vertex_desc);
         gpu_channel_draw_indexed_primitives_cmd(
             channel,
             gpu_primitive_type::line,

@@ -25,7 +25,6 @@ struct
     gpu_buffer* vertex_buffer;
     gpu_buffer* index_buffer;
     gpu_buffer* constants_buffer;
-    gpu_vertex_desc* vertex_desc;
     gpu_texture* font_texture;
     gpu_sampler* font_sampler;
 
@@ -109,7 +108,6 @@ void imgui_render_draw_lists(ImDrawData* draw_data)
         gpu_buffer_update(gpu, vertex_buffer, vertex_data, vertex_data_size, 0);
         gpu_buffer_update(gpu, index_buffer, index_data, index_data_size, 0);
 
-        gpu_channel_set_vertex_desc_cmd(channel, imgui_ctx.vertex_desc);
         gpu_channel_set_buffer_cmd(channel, vertex_buffer, 0);
         gpu_channel_set_buffer_cmd(channel, constants_buffer, 1);
 
@@ -250,34 +248,6 @@ bool imgui_init(platform* platform)
             gpu_buffer_create(gpu, imgui_ctx.index_buffer_capacity, gpu_buffer_type::index);
         imgui_ctx.constants_buffer =
             gpu_buffer_create(gpu, sizeof(float4x4), gpu_buffer_type::constant);
-    }
-
-    //
-    // Vertex Descriptor
-    //
-
-    {
-        gpu_vertex_desc_attribute attributes[3];
-        usize pos_size, uv_size, col_size;
-
-        pos_size = sizeof(float2);
-        uv_size = sizeof(float2);
-        col_size = 4u;
-
-        attributes[0].format = gpu_vertex_format::float2;
-        attributes[0].buffer_index = 0;
-        attributes[0].offset = 0;
-
-        attributes[1].format = gpu_vertex_format::float2;
-        attributes[1].buffer_index = 1;
-        attributes[1].offset = pos_size;
-
-        attributes[2].format = gpu_vertex_format::rgba8_unorm;
-        attributes[2].buffer_index = 2;
-        attributes[2].offset = pos_size + uv_size;
-
-        imgui_ctx.vertex_desc = gpu_vertex_desc_create(
-            gpu, attributes, vx_countof(attributes), (u32)(pos_size + uv_size + col_size));
     }
 
     //

@@ -1,3 +1,8 @@
+layout(std430, binding = 0) restrict readonly buffer vertex_t
+{
+    float vertex_data[];
+};
+
 layout(std430, binding = 1, column_major) buffer global_constants
 {
     mat4 camera;
@@ -16,14 +21,17 @@ layout(std430, binding = 2, column_major) buffer object_constants
 
 #if VX_SHADER == VX_VERTEX_SHADER
 
-layout(location = 0) in vec3 a_position;
-
 out vec4 v_color;
 
 void main()
 {
+    vec3 pos;
+    pos.x = vertex_data[gl_VertexID * 3 + 0];
+    pos.y = vertex_data[gl_VertexID * 3 + 1];
+    pos.z = vertex_data[gl_VertexID * 3 + 2];
+
     uint iid = VX_INSTANCE_ID;
-    gl_Position = global.camera * objects[iid].model * vec4(a_position, 1.0);
+    gl_Position = global.camera * objects[iid].model * vec4(pos, 1.0);
     v_color = objects[iid].color;
 }
 
