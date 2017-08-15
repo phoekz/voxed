@@ -82,7 +82,7 @@ static_assert(VX_OS != VX_OS_UNKNOWN, "Platform detection failed");
 //
 
 #if VX_PLATFORM == VX_PLATFORM_WIN32
-#error "TODO(vinht): Implement popcnt."
+#define vx_popcnt(x) __popcnt(x)
 #elif VX_PLATFORM == VX_PLATFORM_POSIX
 #define vx_popcnt(x) __builtin_popcount(x)
 #endif
