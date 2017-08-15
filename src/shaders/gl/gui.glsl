@@ -33,7 +33,7 @@ void main()
 
 #elif VX_SHADER == VX_FRAGMENT_SHADER
 
-layout(location = 2) uniform sampler2D u_texture;
+layout(location = 0) uniform sampler2D u_texture;
 
 in vec2 v_frag_uv;
 in vec4 v_frag_color;
