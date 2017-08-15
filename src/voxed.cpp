@@ -200,7 +200,7 @@ struct voxed_state
     {
         gpu_shader *vertex, *fragment;
         gpu_pipeline* pipeline;
-    } line_shader, solid_shader, textured_shader, voxel_mesh_shader;
+    } line_shader, voxel_mesh_shader;
 
     struct global_constants
     {
@@ -533,22 +533,12 @@ voxed_state* voxed_create(platform* platform)
     //
 
     {
-        gpu_pipeline_options line_opt = {}, solid_opt = {}, textured_opt = {}, voxel_mesh_opt = {};
+        gpu_pipeline_options line_opt = {}, voxel_mesh_opt = {};
 
         line_opt.blend_enabled = false;
         line_opt.culling_enabled = true;
         line_opt.depth_test_enabled = true;
         line_opt.depth_write_enabled = true;
-
-        solid_opt.blend_enabled = false;
-        solid_opt.culling_enabled = true;
-        solid_opt.depth_test_enabled = true;
-        solid_opt.depth_write_enabled = true;
-
-        textured_opt.blend_enabled = true;
-        textured_opt.culling_enabled = true;
-        textured_opt.depth_test_enabled = true;
-        textured_opt.depth_write_enabled = true;
 
         voxel_mesh_opt.blend_enabled = false;
         voxel_mesh_opt.culling_enabled = true;
@@ -568,8 +558,6 @@ voxed_state* voxed_create(platform* platform)
             const gpu_pipeline_options& opt;
         } sources[] = {
             {SHADER_PATH("line"), state->line_shader, line_opt},
-            {SHADER_PATH("solid"), state->solid_shader, solid_opt},
-            {SHADER_PATH("textured"), state->textured_shader, textured_opt},
             {SHADER_PATH("voxel_mesh"), state->voxel_mesh_shader, voxel_mesh_opt},
         };
 
