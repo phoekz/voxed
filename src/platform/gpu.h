@@ -8,7 +8,6 @@ namespace vx
 struct gpu_buffer;
 struct gpu_texture;
 struct gpu_sampler;
-struct gpu_vertex_desc;
 struct gpu_shader;
 struct gpu_pipeline;
 struct gpu_channel;
@@ -18,15 +17,6 @@ enum class gpu_buffer_type
     vertex,
     index,
     constant,
-};
-
-enum class gpu_vertex_format
-{
-    float1,
-    float2,
-    float3,
-    float4,
-    rgba8_unorm,
 };
 
 enum class gpu_index_type
@@ -91,20 +81,6 @@ gpu_sampler* gpu_sampler_create(
     gpu_filter_mode mip);
 void gpu_sampler_destroy(gpu_device* gpu, gpu_sampler* sampler);
 
-struct gpu_vertex_desc_attribute
-{
-    gpu_vertex_format format;
-    u32 buffer_index;
-    usize offset;
-};
-
-gpu_vertex_desc* gpu_vertex_desc_create(
-    gpu_device* gpu,
-    gpu_vertex_desc_attribute* attributes,
-    u32 attribute_count,
-    u32 vertex_stride);
-void gpu_vertex_desc_destroy(gpu_device* gpu, gpu_vertex_desc* vertex_desc);
-
 gpu_shader* gpu_shader_create(
     gpu_device* gpu,
     gpu_shader_type type,
@@ -140,7 +116,6 @@ struct gpu_clear_cmd_args
 
 void gpu_channel_clear_cmd(gpu_channel* channel, gpu_clear_cmd_args* args);
 void gpu_channel_set_buffer_cmd(gpu_channel* channel, gpu_buffer* buffer, u32 index);
-void gpu_channel_set_vertex_desc_cmd(gpu_channel* channel, gpu_vertex_desc* vertex_desc);
 void gpu_channel_set_texture_cmd(gpu_channel* channel, gpu_texture* texture, u32 index);
 void gpu_channel_set_sampler_cmd(gpu_channel* channel, gpu_sampler* sampler, u32 index);
 void gpu_channel_set_pipeline_cmd(gpu_channel* channel, gpu_pipeline* pipeline);
