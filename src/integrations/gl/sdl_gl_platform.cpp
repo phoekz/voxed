@@ -428,7 +428,7 @@ gpu_shader* gpu_shader_create(
 
     i32 status;
     glGetShaderiv(shader.object, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE)
+    if (!status)
     {
         // TODO: log error here
         char buf[2048];
@@ -474,8 +474,7 @@ gpu_pipeline* gpu_pipeline_create(
 
     i32 status;
     glGetProgramiv(pipeline.program, GL_LINK_STATUS, &status);
-
-    if (status == GL_FALSE)
+    if (!status)
     {
         char buf[2048];
         glGetProgramInfoLog(pipeline.program, sizeof(buf) - 1u, 0, buf);
@@ -571,8 +570,8 @@ void gpu_channel_set_scissor_cmd(gpu_channel* channel, gpu_scissor_rect* rect)
     // The OpenGL screen coordinates are flipped w.r.t. to the y-axis
     // y-zero is at the top of the screen
     set_capability(GL_SCISSOR_TEST, true);
-    int fb_height = int(device->display_size.y * device->display_scale.y);
-    glScissor(i32(rect->x), fb_height - int(rect->y + rect->h), i32(rect->w), i32(rect->h));
+    i32 fb_height = i32(device->display_size.y * device->display_scale.y);
+    glScissor(i32(rect->x), fb_height - i32(rect->y + rect->h), i32(rect->w), i32(rect->h));
 }
 
 void gpu_channel_set_viewport_cmd(gpu_channel* /*channel*/, gpu_viewport* viewport)

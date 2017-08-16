@@ -1,12 +1,8 @@
 enums = [
-    # Constants
-    "GL_TRUE",
-    "GL_FALSE",
     # Types
     "GL_UNSIGNED_BYTE",
     "GL_UNSIGNED_SHORT",
     "GL_UNSIGNED_INT",
-    "GL_FLOAT",
     # Comparison Functions
     "GL_LEQUAL",
     # Fixed-Function State
@@ -21,7 +17,6 @@ enums = [
     "GL_SRC_ALPHA",
     "GL_ONE_MINUS_SRC_ALPHA",
     # Buffer Objects
-    "GL_ARRAY_BUFFER",
     "GL_ELEMENT_ARRAY_BUFFER",
     "GL_SHADER_STORAGE_BUFFER",
     "GL_STATIC_DRAW",
@@ -87,9 +82,6 @@ functions = [
     # Vertex Array Objects
     "glGenVertexArrays",
     "glBindVertexArray",
-    # Vertex Attributes
-    "glEnableVertexAttribArray",
-    "glVertexAttribPointer",
     # Textures
     "glGenTextures",
     "glBindTexture",
