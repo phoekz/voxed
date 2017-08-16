@@ -7,8 +7,6 @@
 #define GL_DEPTH_BUFFER_BIT 0x00000100u
 #define GL_STENCIL_BUFFER_BIT 0x00000400u
 #define GL_COLOR_BUFFER_BIT 0x00004000u
-#define GL_FALSE 0x00000000u
-#define GL_TRUE 0x00000001u
 #define GL_POINTS 0x00000000u
 #define GL_LINES 0x00000001u
 #define GL_LINE_STRIP 0x00000003u
@@ -27,7 +25,6 @@
 #define GL_UNSIGNED_BYTE 0x00001401u
 #define GL_UNSIGNED_SHORT 0x00001403u
 #define GL_UNSIGNED_INT 0x00001405u
-#define GL_FLOAT 0x00001406u
 #define GL_RGBA 0x00001908u
 #define GL_NEAREST 0x00002600u
 #define GL_LINEAR 0x00002601u
@@ -39,7 +36,6 @@
 #define GL_CLAMP_TO_EDGE 0x0000812fu
 #define GL_TEXTURE0 0x000084c0u
 #define GL_FUNC_ADD 0x00008006u
-#define GL_ARRAY_BUFFER 0x00008892u
 #define GL_ELEMENT_ARRAY_BUFFER 0x00008893u
 #define GL_STATIC_DRAW 0x000088e4u
 #define GL_FRAGMENT_SHADER 0x00008b30u
@@ -80,7 +76,6 @@ extern vx::u32(*glCreateProgram)(void);
 extern vx::u32(*glCreateShader)(vx::u32 type);
 extern void(*glDeleteProgram)(vx::u32 program);
 extern void(*glDeleteShader)(vx::u32 shader);
-extern void(*glEnableVertexAttribArray)(vx::u32 index);
 extern void(*glGetProgramiv)(vx::u32 program, vx::u32 pname, vx::i32* params);
 extern void(*glGetProgramInfoLog)(vx::u32 program, vx::i32 bufSize, vx::i32* length, char* infoLog);
 extern void(*glGetShaderiv)(vx::u32 shader, vx::u32 pname, vx::i32* params);
@@ -89,7 +84,6 @@ extern void(*glLinkProgram)(vx::u32 program);
 extern void(*glShaderSource)(vx::u32 shader, vx::i32 count, char** string, vx::i32* length);
 extern void(*glUseProgram)(vx::u32 program);
 extern void(*glUniform1i)(vx::i32 location, vx::i32 v0);
-extern void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 extern void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
 extern void(*glBindVertexArray)(vx::u32 array);
 extern void(*glGenVertexArrays)(vx::i32 n, vx::u32* arrays);
@@ -134,7 +128,6 @@ vx::u32(*glCreateProgram)(void);
 vx::u32(*glCreateShader)(vx::u32 type);
 void(*glDeleteProgram)(vx::u32 program);
 void(*glDeleteShader)(vx::u32 shader);
-void(*glEnableVertexAttribArray)(vx::u32 index);
 void(*glGetProgramiv)(vx::u32 program, vx::u32 pname, vx::i32* params);
 void(*glGetProgramInfoLog)(vx::u32 program, vx::i32 bufSize, vx::i32* length, char* infoLog);
 void(*glGetShaderiv)(vx::u32 shader, vx::u32 pname, vx::i32* params);
@@ -143,7 +136,6 @@ void(*glLinkProgram)(vx::u32 program);
 void(*glShaderSource)(vx::u32 shader, vx::i32 count, char** string, vx::i32* length);
 void(*glUseProgram)(vx::u32 program);
 void(*glUniform1i)(vx::i32 location, vx::i32 v0);
-void(*glVertexAttribPointer)(vx::u32 index, vx::i32 size, vx::u32 type, vx::u8 normalized, vx::i32 stride, void* pointer);
 void(*glBindBufferBase)(vx::u32 target, vx::u32 index, vx::u32 buffer);
 void(*glBindVertexArray)(vx::u32 array);
 void(*glGenVertexArrays)(vx::i32 n, vx::u32* arrays);
@@ -186,7 +178,6 @@ void vx_gl_init(void *(*addr)(const char *))
     glCreateShader = (vx::u32(*)(vx::u32))addr("glCreateShader");
     glDeleteProgram = (void(*)(vx::u32))addr("glDeleteProgram");
     glDeleteShader = (void(*)(vx::u32))addr("glDeleteShader");
-    glEnableVertexAttribArray = (void(*)(vx::u32))addr("glEnableVertexAttribArray");
     glGetProgramiv = (void(*)(vx::u32, vx::u32, vx::i32*))addr("glGetProgramiv");
     glGetProgramInfoLog = (void(*)(vx::u32, vx::i32, vx::i32*, char*))addr("glGetProgramInfoLog");
     glGetShaderiv = (void(*)(vx::u32, vx::u32, vx::i32*))addr("glGetShaderiv");
@@ -195,7 +186,6 @@ void vx_gl_init(void *(*addr)(const char *))
     glShaderSource = (void(*)(vx::u32, vx::i32, char**, vx::i32*))addr("glShaderSource");
     glUseProgram = (void(*)(vx::u32))addr("glUseProgram");
     glUniform1i = (void(*)(vx::i32, vx::i32))addr("glUniform1i");
-    glVertexAttribPointer = (void(*)(vx::u32, vx::i32, vx::u32, vx::u8, vx::i32, void*))addr("glVertexAttribPointer");
     glBindBufferBase = (void(*)(vx::u32, vx::u32, vx::u32))addr("glBindBufferBase");
     glBindVertexArray = (void(*)(vx::u32))addr("glBindVertexArray");
     glGenVertexArrays = (void(*)(vx::i32, vx::u32*))addr("glGenVertexArrays");
