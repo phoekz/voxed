@@ -229,7 +229,7 @@ struct voxed_state
         gpu_buffer* buffer;
     } wire_cube_constants;
 
-    struct voxel_grid_ruler_constants
+    struct voxel_ruler_constants
     {
         struct data
         {
@@ -237,7 +237,7 @@ struct voxed_state
             float4 color;
         } data[axis_plane_count];
         gpu_buffer* buffer;
-    } voxel_grid_ruler_constants;
+    } voxel_ruler_constants;
 
     struct
     {
@@ -246,7 +246,7 @@ struct voxed_state
         float4 selection{0.05f, 0.05f, 0.05f, 1.0f};
         float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
     } colors;
-    float4x4 camera_view{};
+
     orbit_camera camera{};
 
     bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
@@ -584,8 +584,8 @@ voxed_state* voxed_create(platform* platform)
             gpu_buffer_create(gpu, sizeof(state->global_constants.data), gpu_buffer_type::constant);
         state->wire_cube_constants.buffer = gpu_buffer_create(
             gpu, sizeof(state->wire_cube_constants.data), gpu_buffer_type::constant);
-        state->voxel_grid_ruler_constants.buffer = gpu_buffer_create(
-            gpu, sizeof(state->voxel_grid_ruler_constants.data), gpu_buffer_type::constant);
+        state->voxel_ruler_constants.buffer = gpu_buffer_create(
+            gpu, sizeof(state->voxel_ruler_constants.data), gpu_buffer_type::constant);
         state->color_wheel.buffer =
             gpu_buffer_create(gpu, sizeof(state->color_wheel.model), gpu_buffer_type::constant);
     }
@@ -898,7 +898,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
     {
         for (int i = 0; i < axis_plane_count; ++i)
         {
-            auto& pl = state->voxel_grid_ruler_constants.data[i];
+            auto& pl = state->voxel_ruler_constants.data[i];
             auto& ruler = state->rulers[i];
             float3 offset{0.0f};
             offset[(i + 2) % 3] = ruler.offset * state->voxel_extents.x;
@@ -1166,9 +1166,9 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
     {
         gpu_buffer_update(
             gpu,
-            state->voxel_grid_ruler_constants.buffer,
-            state->voxel_grid_ruler_constants.data,
-            sizeof(state->voxel_grid_ruler_constants.data),
+            state->voxel_ruler_constants.buffer,
+            state->voxel_ruler_constants.data,
+            sizeof(state->voxel_ruler_constants.data),
             0);
 
         gpu_buffer_update(
@@ -1205,7 +1205,7 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
     {
         gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
         gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->voxel_grid_ruler_constants.buffer, 2);
+        gpu_channel_set_buffer_cmd(channel, state->voxel_ruler_constants.buffer, 2);
 
         for (int i = 0; i < axis_plane_count; ++i)
         {
