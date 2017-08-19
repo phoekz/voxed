@@ -1143,18 +1143,21 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
         voxed_state::mesh& m = state->voxel_mesh;
 
         if (m.vertices)
-            gpu_buffer_destroy(gpu, m.vertices);
+            gpu_buffer_destroy(gpu, m.vertices), m.vertex_count = 0;
         if (m.indices)
-            gpu_buffer_destroy(gpu, m.indices);
+            gpu_buffer_destroy(gpu, m.indices), m.index_count = 0;
 
-        m.vertices = gpu_buffer_create(gpu, new_vbo.byte_size(), gpu_buffer_type::vertex);
-        m.indices = gpu_buffer_create(gpu, new_ibo.byte_size(), gpu_buffer_type::index);
+        if (new_vbo.size() && new_ibo.size())
+        {
+            m.vertices = gpu_buffer_create(gpu, new_vbo.byte_size(), gpu_buffer_type::vertex);
+            m.indices = gpu_buffer_create(gpu, new_ibo.byte_size(), gpu_buffer_type::index);
 
-        gpu_buffer_update(gpu, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
-        gpu_buffer_update(gpu, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
+            gpu_buffer_update(gpu, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
+            gpu_buffer_update(gpu, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
 
-        m.vertex_count = new_vbo.size();
-        m.index_count = 3 * new_ibo.size();
+            m.vertex_count = new_vbo.size();
+            m.index_count = 3 * new_ibo.size();
+        }
 
         state->voxel_grid_is_dirty = false;
     }
