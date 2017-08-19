@@ -6,25 +6,26 @@
 
 namespace vx
 {
-struct voxed_state;
+struct voxed_cpu_state;
+struct voxed_gpu_state;
 
-enum class voxed_mode
+struct voxed
 {
-    voxel,
-    box
+    voxed_cpu_state* cpu;
+    voxed_gpu_state* gpu;
 };
 
-voxed_state* voxed_create(platform* platform);
+voxed* voxed_create(platform* platform);
 
-void voxed_set_mode(voxed_state* state, voxed_mode mode);
+void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt);
 
-void voxed_update(voxed_state* state, const platform& platform, float dt);
+void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_device* device);
 
-void voxed_gui(voxed_state* state);
+void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu);
 
-void voxed_gpu_update(voxed_state* state, gpu_device* gpu);
+void voxed_gpu_draw(voxed_gpu_state* gpu, gpu_channel* channel);
 
-void voxed_gpu_draw(voxed_state* state, gpu_channel* channel);
+void voxed_frame_end(voxed* state);
 
-void voxed_quit(voxed_state* state);
+void voxed_quit(voxed* state);
 }

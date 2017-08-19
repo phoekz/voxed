@@ -165,7 +165,44 @@ enum render_flag
     RENDER_FLAG_DIRECTIONAL_LIGHT = 1 << 1,
 };
 
-struct voxed_state
+struct color_pallette
+{
+    float4 cube{0.1f, 0.1f, 0.1f, 1.0f};
+    float4 grid{0.4f, 0.4f, 0.4f, 1.0f};
+    float4 selection{0.05f, 0.05f, 0.05f, 1.0f};
+    float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
+} colors;
+
+struct voxed_cpu_state
+{
+    orbit_camera camera{};
+    u32 render_flags;
+
+    bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
+    float3 scene_extents;
+    float3 voxel_extents;
+    voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
+    bool voxel_grid_is_dirty;
+    voxel_intersect_event intersect;
+
+    struct ruler
+    {
+        i32 offset;
+        bool enabled;
+    } rulers[axis_plane_count];
+
+    struct brush
+    {
+        float3 color_hsv;
+    } brush;
+
+    struct
+    {
+        u32 voxel_solid, voxel_empty;
+    } stats;
+};
+
+struct voxed_gpu_state
 {
     struct mesh
     {
@@ -173,34 +210,33 @@ struct voxed_state
         u32 vertex_count, index_count;
     };
 
-    mesh wire_cube, solid_cube, quad;
+    mesh wire_cube;
+    mesh solid_cube;
+    mesh quad;
     mesh voxel_mesh;
-
-    struct ruler
-    {
-        mesh mesh;
-        i32 offset;
-        bool enabled;
-    } rulers[axis_plane_count];
-
-    struct
-    {
-        gpu_texture* texture;
-        gpu_sampler* sampler;
-        float4x4 model;
-        gpu_buffer* buffer;
-    } color_wheel;
-
-    struct
-    {
-        float3 color_hsv;
-    } brush;
 
     struct shader
     {
         gpu_shader *vertex, *fragment;
         gpu_pipeline* pipeline;
-    } line_shader, voxel_mesh_shader;
+    };
+
+    shader line_shader;
+    shader voxel_mesh_shader;
+
+    bool voxel_mesh_changed_recently;
+
+    struct ruler
+    {
+        mesh mesh;
+        bool enabled;
+    } rulers[axis_plane_count];
+
+    struct color_wheel
+    {
+        gpu_texture* texture;
+        gpu_sampler* sampler;
+    } color_wheel;
 
     struct global_constants
     {
@@ -226,6 +262,7 @@ struct voxed_state
             float4x4 model;
             float4 color;
         } data[count];
+        bool enabled[count];
         gpu_buffer* buffer;
     } wire_cube_constants;
 
@@ -238,48 +275,25 @@ struct voxed_state
         } data[axis_plane_count];
         gpu_buffer* buffer;
     } voxel_ruler_constants;
-
-    struct
-    {
-        float4 cube{0.1f, 0.1f, 0.1f, 1.0f};
-        float4 grid{0.4f, 0.4f, 0.4f, 1.0f};
-        float4 selection{0.05f, 0.05f, 0.05f, 1.0f};
-        float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
-    } colors;
-
-    orbit_camera camera{};
-
-    bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
-    float3 scene_extents;
-    float3 voxel_extents;
-    voxel_leaf voxel_grid[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
-    bool voxel_grid_is_dirty;
-
-    voxel_intersect_event intersect;
-
-    struct
-    {
-        u32 voxel_solid, voxel_empty;
-    } stats;
-
-    u32 render_flags;
-
-    voxed_mode mode;
 };
 
-voxed_state* voxed_create(platform* platform)
+static voxed_cpu_state _voxed_cpu_state;
+static voxed_gpu_state _voxed_gpu_state;
+static voxed _voxed{&_voxed_cpu_state, &_voxed_gpu_state};
+
+voxed* voxed_create(platform* platform)
 {
-    // TODO(johann): figure out a better way to set default values than calling the constructor
-    voxed_state* state = new voxed_state();
-    gpu_device* gpu = platform->gpu;
+    voxed_cpu_state* cpu = &_voxed_cpu_state;
+    voxed_gpu_state* gpu = &_voxed_gpu_state;
+    gpu_device* device = platform->gpu;
 
     //
     // defaults
     //
 
     {
-        state->render_flags |= RENDER_FLAG_AMBIENT_OCCLUSION;
-        state->render_flags |= RENDER_FLAG_DIRECTIONAL_LIGHT;
+        cpu->render_flags |= RENDER_FLAG_AMBIENT_OCCLUSION;
+        cpu->render_flags |= RENDER_FLAG_DIRECTIONAL_LIGHT;
     }
 
     //
@@ -287,10 +301,10 @@ voxed_state* voxed_create(platform* platform)
     //
 
     {
-        memset(state->voxel_grid, 0, sizeof(state->voxel_grid));
-        state->scene_extents = extents(state->scene_bounds);
-        state->voxel_extents = state->scene_extents / (float)VX_GRID_SIZE;
-        state->voxel_grid_is_dirty = false;
+        memset(cpu->voxel_grid, 0, sizeof(cpu->voxel_grid));
+        cpu->scene_extents = extents(cpu->scene_bounds);
+        cpu->voxel_extents = cpu->scene_extents / (float)VX_GRID_SIZE;
+        cpu->voxel_grid_is_dirty = false;
     }
 
     //
@@ -312,16 +326,16 @@ voxed_state* voxed_create(platform* platform)
         };
         // clang-format on
 
-        voxed_state::mesh& m = state->wire_cube;
+        voxed_gpu_state::mesh& m = gpu->wire_cube;
 
-        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
-        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
+        m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
 
-        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
-        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
+        gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
 
-        state->wire_cube.vertex_count = vx_countof(vertices);
-        state->wire_cube.index_count = 2 * vx_countof(indices);
+        m.vertex_count = vx_countof(vertices);
+        m.index_count = 2 * vx_countof(indices);
     }
 
     //
@@ -381,16 +395,16 @@ voxed_state* voxed_create(platform* platform)
         };
         // clang-format on
 
-        voxed_state::mesh& m = state->solid_cube;
+        voxed_gpu_state::mesh& m = gpu->solid_cube;
 
-        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
-        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
+        m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
 
-        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
-        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
+        gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
 
-        state->solid_cube.vertex_count = vx_countof(vertices);
-        state->solid_cube.index_count = 3 * vx_countof(indices);
+        m.vertex_count = vx_countof(vertices);
+        m.index_count = 3 * vx_countof(indices);
     }
 
     //
@@ -400,13 +414,13 @@ voxed_state* voxed_create(platform* platform)
     {
         // defaults
 
-        state->rulers[axis_plane_xy].enabled = false;
-        state->rulers[axis_plane_yz].enabled = false;
-        state->rulers[axis_plane_zx].enabled = true;
+        cpu->rulers[axis_plane_xy].enabled = false;
+        cpu->rulers[axis_plane_yz].enabled = false;
+        cpu->rulers[axis_plane_zx].enabled = true;
 
-        state->rulers[axis_plane_xy].offset = 0;
-        state->rulers[axis_plane_yz].offset = 0;
-        state->rulers[axis_plane_zx].offset = -VX_GRID_SIZE / 2;
+        cpu->rulers[axis_plane_xy].offset = 0;
+        cpu->rulers[axis_plane_yz].offset = 0;
+        cpu->rulers[axis_plane_zx].offset = -VX_GRID_SIZE / 2;
 
         struct line
         {
@@ -414,7 +428,7 @@ voxed_state* voxed_create(platform* platform)
         };
 
         // assume the extents are the same in all directions
-        const float voxel_extent = state->voxel_extents.x;
+        const float voxel_extent = cpu->voxel_extents.x;
         const int line_count = VX_GRID_SIZE + 1;
         const float half_line_length = 0.5f * VX_GRID_SIZE * voxel_extent;
 
@@ -439,11 +453,11 @@ voxed_state* voxed_create(platform* platform)
                 l1.b[(i + 1) % 3] = +half_line_length;
             }
 
-            voxed_state::mesh& m = state->rulers[i].mesh;
+            voxed_gpu_state::mesh& m = gpu->rulers[i].mesh;
             m.vertex_count = m.index_count = 2 * (u32)grid_lines.size();
 
-            m.vertices = gpu_buffer_create(gpu, grid_lines.byte_size(), gpu_buffer_type::vertex);
-            gpu_buffer_update(gpu, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
+            m.vertices = gpu_buffer_create(device, grid_lines.byte_size(), gpu_buffer_type::vertex);
+            gpu_buffer_update(device, m.vertices, grid_lines.ptr(), grid_lines.byte_size(), 0);
 
             grid_lines.clear();
         }
@@ -467,16 +481,16 @@ voxed_state* voxed_create(platform* platform)
         };
         int3 indices[] = {{0, 1, 2}, {2, 3, 0}};
 
-        voxed_state::mesh& m = state->quad;
+        voxed_gpu_state::mesh& m = gpu->quad;
 
-        m.vertices = gpu_buffer_create(gpu, sizeof(vertices), gpu_buffer_type::vertex);
-        m.indices = gpu_buffer_create(gpu, sizeof(indices), gpu_buffer_type::index);
+        m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
+        m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
 
-        gpu_buffer_update(gpu, m.vertices, vertices, sizeof(vertices), 0);
-        gpu_buffer_update(gpu, m.indices, indices, sizeof(indices), 0);
+        gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
+        gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
 
-        state->quad.vertex_count = vx_countof(vertices);
-        state->quad.index_count = 3 * vx_countof(indices);
+        m.vertex_count = vx_countof(vertices);
+        m.index_count = 3 * vx_countof(indices);
     }
 
     //
@@ -486,7 +500,7 @@ voxed_state* voxed_create(platform* platform)
     {
         // Defaults
 
-        state->brush.color_hsv = float3(0.0f, 0.0f, 1.0f); // white
+        cpu->brush.color_hsv = float3(0.0f, 0.0f, 1.0f); // white
 
         // Baking HSV color wheel into a texture.
 
@@ -520,10 +534,10 @@ voxed_state* voxed_create(platform* platform)
                     pixels[4 * i + 3] = 0;
             }
 
-        state->color_wheel.texture =
-            gpu_texture_create(gpu, w, h, gpu_pixel_format::rgba8_unorm_srgb, pixels);
-        state->color_wheel.sampler = gpu_sampler_create(
-            gpu, gpu_filter_mode::linear, gpu_filter_mode::linear, gpu_filter_mode::nearest);
+        gpu->color_wheel.texture =
+            gpu_texture_create(device, w, h, gpu_pixel_format::rgba8_unorm_srgb, pixels);
+        gpu->color_wheel.sampler = gpu_sampler_create(
+            device, gpu_filter_mode::linear, gpu_filter_mode::linear, gpu_filter_mode::nearest);
 
         std::free(pixels);
     }
@@ -554,11 +568,11 @@ voxed_state* voxed_create(platform* platform)
         struct
         {
             const char* path;
-            voxed_state::shader& shader;
+            voxed_gpu_state::shader& shader;
             const gpu_pipeline_options& opt;
         } sources[] = {
-            {SHADER_PATH("line"), state->line_shader, line_opt},
-            {SHADER_PATH("voxel_mesh"), state->voxel_mesh_shader, voxel_mesh_opt},
+            {SHADER_PATH("line"), gpu->line_shader, line_opt},
+            {SHADER_PATH("voxel_mesh"), gpu->voxel_mesh_shader, voxel_mesh_opt},
         };
 
 #undef SHADER_PATH
@@ -570,32 +584,28 @@ voxed_state* voxed_create(platform* platform)
 
             program_src = read_whole_file(sources[i].path, &program_size);
 
-            voxed_state::shader& shader = sources[i].shader;
+            voxed_gpu_state::shader& shader = sources[i].shader;
             shader.vertex = gpu_shader_create(
-                gpu, gpu_shader_type::vertex, program_src, program_size, "vertex_main");
+                device, gpu_shader_type::vertex, program_src, program_size, "vertex_main");
             shader.fragment = gpu_shader_create(
-                gpu, gpu_shader_type::fragment, program_src, program_size, "fragment_main");
+                device, gpu_shader_type::fragment, program_src, program_size, "fragment_main");
             shader.pipeline =
-                gpu_pipeline_create(gpu, shader.vertex, shader.fragment, sources[i].opt);
+                gpu_pipeline_create(device, shader.vertex, shader.fragment, sources[i].opt);
             free(program_src);
         }
 
-        state->global_constants.buffer =
-            gpu_buffer_create(gpu, sizeof(state->global_constants.data), gpu_buffer_type::constant);
-        state->wire_cube_constants.buffer = gpu_buffer_create(
-            gpu, sizeof(state->wire_cube_constants.data), gpu_buffer_type::constant);
-        state->voxel_ruler_constants.buffer = gpu_buffer_create(
-            gpu, sizeof(state->voxel_ruler_constants.data), gpu_buffer_type::constant);
-        state->color_wheel.buffer =
-            gpu_buffer_create(gpu, sizeof(state->color_wheel.model), gpu_buffer_type::constant);
+        gpu->global_constants.buffer = gpu_buffer_create(
+            device, sizeof(gpu->global_constants.data), gpu_buffer_type::constant);
+        gpu->wire_cube_constants.buffer = gpu_buffer_create(
+            device, sizeof(gpu->wire_cube_constants.data), gpu_buffer_type::constant);
+        gpu->voxel_ruler_constants.buffer = gpu_buffer_create(
+            device, sizeof(gpu->voxel_ruler_constants.data), gpu_buffer_type::constant);
     }
 
-    return state;
+    return &_voxed;
 }
 
-void voxed_set_mode(voxed_state* state, voxed_mode mode) { state->mode = mode; }
-
-void voxed_update(voxed_state* state, const platform& platform, float dt)
+void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
 {
     //
     // camera controls
@@ -607,21 +617,20 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
         if (mouse_button_pressed(button::right) || kb[SDL_SCANCODE_SPACE])
         {
             auto delta = mouse_delta();
-            on_camera_orbit(state->camera, float(delta.x), float(delta.y), dt);
+            on_camera_orbit(cpu->camera, float(delta.x), float(delta.y), dt);
         }
 
         if (scroll_wheel_moved())
         {
-            on_camera_dolly(state->camera, float(-scroll_delta()), dt);
+            on_camera_dolly(cpu->camera, float(-scroll_delta()), dt);
         }
 
         int w, h;
         SDL_GetWindowSize(platform.window, &w, &h);
 
-        state->camera.transform =
-            glm::perspective(
-                state->camera.fovy, float(w) / h, state->camera.near, state->camera.far) *
-            glm::lookAt(eye(state->camera), state->camera.focal_point, up(state->camera));
+        cpu->camera.transform =
+            glm::perspective(cpu->camera.fovy, float(w) / h, cpu->camera.near, cpu->camera.far) *
+            glm::lookAt(eye(cpu->camera), cpu->camera.focal_point, up(cpu->camera));
     }
 
     //
@@ -629,9 +638,9 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
     //
 
     {
-        state->intersect = voxel_intersect_event{};
+        cpu->intersect = voxel_intersect_event{};
 
-        ray ray = generate_camera_ray(platform, state->camera);
+        ray ray = generate_camera_ray(platform, cpu->camera);
 
         // voxel grid
 
@@ -640,22 +649,22 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
                 for (int x = 0; x < VX_GRID_SIZE; x++)
                 {
                     int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    if (state->voxel_grid[i].flags)
+                    if (cpu->voxel_grid[i].flags)
                     {
                         float3 voxel_coords{x, y, z};
                         bounds3f voxel_bounds;
                         voxel_bounds.min =
-                            state->scene_bounds.min + voxel_coords * state->voxel_extents;
-                        voxel_bounds.max = voxel_bounds.min + state->voxel_extents;
+                            cpu->scene_bounds.min + voxel_coords * cpu->voxel_extents;
+                        voxel_bounds.max = voxel_bounds.min + cpu->voxel_extents;
 
                         float t;
-                        if (ray_intersects_aabb(ray, voxel_bounds, &t) && t < state->intersect.t)
+                        if (ray_intersects_aabb(ray, voxel_bounds, &t) && t < cpu->intersect.t)
                         {
-                            state->intersect.t = t;
-                            state->intersect.voxel_coords = voxel_coords;
-                            state->intersect.position = ray.origin + ray.direction * t;
-                            state->intersect.normal = reconstruct_voxel_normal(
-                                center(voxel_bounds), state->intersect.position);
+                            cpu->intersect.t = t;
+                            cpu->intersect.voxel_coords = voxel_coords;
+                            cpu->intersect.position = ray.origin + ray.direction * t;
+                            cpu->intersect.normal = reconstruct_voxel_normal(
+                                center(voxel_bounds), cpu->intersect.position);
                         }
                     }
                 }
@@ -664,7 +673,7 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
 
         for (int axis = 0; axis < 3; axis++)
         {
-            const auto& ruler = state->rulers[axis];
+            const auto& ruler = cpu->rulers[axis];
 
             if (!ruler.enabled)
                 continue;
@@ -676,23 +685,23 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
             const float tiny_extent = 1.0f / (1 << 16);
             float t;
             float3 mn, mx;
-            mn = state->scene_bounds.min;
-            mx = state->scene_bounds.max;
-            float ext = state->voxel_extents.x;
+            mn = cpu->scene_bounds.min;
+            mx = cpu->scene_bounds.max;
+            float ext = cpu->voxel_extents.x;
             mn[(axis + 2) % 3] = -tiny_extent + ext * ruler.offset;
             mx[(axis + 2) % 3] = +tiny_extent + ext * ruler.offset;
 
-            if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < state->intersect.t)
+            if (ray_intersects_aabb(ray, bounds3f{mn, mx}, &t) && t < cpu->intersect.t)
             {
-                state->intersect.t = t;
-                state->intersect.position = ray.origin + ray.direction * t;
-                state->intersect.voxel_coords = (int3)glm::floor(remap_range(
-                    state->intersect.position,
-                    state->scene_bounds.min,
-                    state->scene_bounds.max,
+                cpu->intersect.t = t;
+                cpu->intersect.position = ray.origin + ray.direction * t;
+                cpu->intersect.voxel_coords = (int3)glm::floor(remap_range(
+                    cpu->intersect.position,
+                    cpu->scene_bounds.min,
+                    cpu->scene_bounds.max,
                     float3{0.f},
                     float3{VX_GRID_SIZE}));
-                state->intersect.normal = float3{0.f};
+                cpu->intersect.normal = float3{0.f};
             }
         }
     }
@@ -701,7 +710,7 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
     // voxel editing
     //
 
-    if (state->intersect.t < INFINITY)
+    if (cpu->intersect.t < INFINITY)
     {
         if (mouse_button_down(button::left))
         {
@@ -709,28 +718,28 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
 
             if (kb[SDL_SCANCODE_LSHIFT])
             {
-                int3 p = state->intersect.voxel_coords;
+                int3 p = cpu->intersect.voxel_coords;
                 if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
                     glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
                     fprintf(stdout, "Erased voxel from %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    state->voxel_grid[i].flags = 0;
-                    state->voxel_grid_is_dirty = true;
+                    cpu->voxel_grid[i].flags = 0;
+                    cpu->voxel_grid_is_dirty = true;
                 }
             }
             else
             {
-                int3 p = state->intersect.voxel_coords + (int3)state->intersect.normal;
+                int3 p = cpu->intersect.voxel_coords + (int3)cpu->intersect.normal;
 
                 if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
                     glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
                 {
                     fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    state->voxel_grid[i].flags |= voxel_flag_solid;
-                    state->voxel_grid[i].color = hsv_to_rgb(state->brush.color_hsv);
-                    state->voxel_grid_is_dirty = true;
+                    cpu->voxel_grid[i].flags |= voxel_flag_solid;
+                    cpu->voxel_grid[i].color = hsv_to_rgb(cpu->brush.color_hsv);
+                    cpu->voxel_grid_is_dirty = true;
                 }
                 else
                     fprintf(
@@ -747,140 +756,24 @@ void voxed_update(voxed_state* state, const platform& platform, float dt)
     // voxel statistics
     //
 
-    if (state->voxel_grid_is_dirty)
+    if (cpu->voxel_grid_is_dirty)
     {
-        state->stats.voxel_solid = state->stats.voxel_empty = 0;
+        cpu->stats.voxel_solid = cpu->stats.voxel_empty = 0;
 
         for (int z = 0; z < VX_GRID_SIZE; z++)
             for (int y = 0; y < VX_GRID_SIZE; y++)
                 for (int x = 0; x < VX_GRID_SIZE; x++)
                 {
                     int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    if (state->voxel_grid[i].flags & voxel_flag_solid)
-                        state->stats.voxel_solid++;
+                    if (cpu->voxel_grid[i].flags & voxel_flag_solid)
+                        cpu->stats.voxel_solid++;
                     else
-                        state->stats.voxel_empty++;
+                        cpu->stats.voxel_empty++;
                 }
     }
 }
 
-void voxed_gui(voxed_state* state)
-{
-    static bool hack_instant_load = false;
-    ImGui::Begin("voxed");
-    ImGui::Value("Resolution", VX_GRID_SIZE);
-    ImGui::Separator();
-    ImGui::Value("Voxel Leaf Bytes", (int)sizeof(voxel_leaf));
-    ImGui::Value("Voxel Grid Bytes", (int)sizeof(state->voxel_grid));
-    ImGui::Separator();
-    ImGui::Value("Total Voxels", pow3(VX_GRID_SIZE));
-    ImGui::Value("Empty Voxels", state->stats.voxel_empty);
-    ImGui::Value("Solid Voxels", state->stats.voxel_solid);
-    ImGui::Separator();
-    ImGui::Value("Vertices", state->voxel_mesh.vertex_count);
-    ImGui::Value("Triangles", state->voxel_mesh.index_count / 3);
-    ImGui::Separator();
-    ImGui::CheckboxFlags("Ambient Occlusion", &state->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
-    ImGui::CheckboxFlags("Directional Light", &state->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
-    ImGui::Separator();
-    if (ImGui::Button("Save"))
-    {
-        if (FILE* f = fopen("scene.vx", "wb"))
-        {
-            fwrite(state->voxel_grid, sizeof state->voxel_grid, 1, f);
-            fclose(f);
-            fprintf(stdout, "Saved scene\n");
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load") || hack_instant_load)
-    {
-        if (FILE* f = fopen("scene.vx", "rb"))
-        {
-            fread(state->voxel_grid, sizeof state->voxel_grid, 1, f);
-            fclose(f);
-            fprintf(stdout, "Loaded scene\n");
-            state->voxel_grid_is_dirty = true;
-        }
-        hack_instant_load = false;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear"))
-    {
-        memset(state->voxel_grid, 0, sizeof(state->voxel_grid));
-        state->voxel_grid_is_dirty = true;
-    }
-    ImGui::Separator();
-    ImGui::Text("Rulers");
-    static const char* plane_names[] = {"XY", "YZ", "ZX"};
-    for (int i = 0; i < axis_plane_count; ++i)
-    {
-        voxed_state::ruler& ruler = state->rulers[i];
-        ImGui::PushID(i);
-        ImGui::Text("%s", plane_names[i]);
-        ImGui::SameLine();
-        ImGui::SliderInt("##slider", &ruler.offset, -VX_GRID_SIZE / 2, VX_GRID_SIZE / 2);
-        ImGui::SameLine();
-        ImGui::Checkbox("##checkbox", &ruler.enabled);
-        ImGui::PopID();
-    }
-    ImGui::Separator();
-    ImGui::Text("Color Wheel");
-    {
-        const float wheel_diameter = 200.0f /* pixels */;
-
-        // draw color wheel texture while caching key locations & sizes
-        ImVec2 pre = ImGui::GetCursorPos();
-        ImVec2 anchor = ImGui::GetCursorScreenPos();
-        ImGui::Image(state->color_wheel.texture, ImVec2(wheel_diameter, wheel_diameter));
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        ImVec2 post = ImGui::GetCursorPos();
-
-        // relative mouse position
-        ImVec2 mouse_pos = ImGui::GetMousePos();
-        ImVec2 rel_pos = ImVec2(mouse_pos.x - rmin.x, mouse_pos.y - rmin.y);
-
-        // normalized mouse position [-1, 1]
-        float normx, normy;
-        normx = remap_range(rel_pos.x, 0.0f, wheel_diameter, -1.0f, 1.0f);
-        normy = remap_range(rel_pos.y, 0.0f, wheel_diameter, -1.0f, 1.0f);
-        float dist_to_origin = glm::length(float2(normx, normy));
-
-        // update color value when a click has been detected within the wheel
-        if (mouse_button_pressed(button::left) && dist_to_origin < 1.0f)
-        {
-            float angle = remap_range(glm::atan(normy, normx), -float(pi), float(pi), 0.f, 1.f);
-            state->brush.color_hsv = float3(angle, dist_to_origin, 1.0f);
-        }
-
-        // absolute position of the mouse cursor
-        ImVec2 hovering_pos = anchor;
-        hovering_pos.x += rel_pos.x, hovering_pos.y += rel_pos.y;
-
-        // absolute position of the selected color
-        ImVec2 selected_pos = anchor;
-        selected_pos.x += 0.5f * (rmax.x - rmin.x);
-        selected_pos.y += 0.5f * (rmax.y - rmin.y);
-        float3 hsv = state->brush.color_hsv;
-        float angle = remap_range(hsv.x, 0.0f, 1.0f, -pi, pi);
-        selected_pos.x += 0.5f * wheel_diameter * hsv.y * std::cos(angle);
-        selected_pos.y += 0.5f * wheel_diameter * hsv.y * std::sin(angle);
-
-        // render both hovering color and selected color
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        ImColor selected_color = ImColor(0.05f, 0.05f, 0.05f, 1.0f);
-        ImColor hovering_color = ImColor(0.25f, 0.25f, 0.25f, 1.0f);
-        ImGui::SetCursorPos(pre);
-        if (ImGui::IsItemHovered() && dist_to_origin < 1.0f)
-            draw_list->AddCircle(hovering_pos, 4.0f, hovering_color, 12, 2.0f);
-        draw_list->AddCircle(selected_pos, 4.0f, selected_color, 12, 2.0f);
-        ImGui::SetCursorPos(post);
-    }
-    ImGui::End();
-}
-
-void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
+void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_device* device)
 {
     //
     // setup constants
@@ -889,8 +782,8 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
     // globals
 
     {
-        state->global_constants.data.camera = state->camera.transform;
-        state->global_constants.data.flags = state->render_flags;
+        gpu->global_constants.data.camera = cpu->camera.transform;
+        gpu->global_constants.data.flags = cpu->render_flags;
     }
 
     // voxel rulers
@@ -898,12 +791,16 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
     {
         for (int i = 0; i < axis_plane_count; ++i)
         {
-            auto& pl = state->voxel_ruler_constants.data[i];
-            auto& ruler = state->rulers[i];
+            const auto& cpu_ruler = cpu->rulers[i];
+            auto& gpu_ruler = gpu->rulers[i];
+            auto& gpu_data = gpu->voxel_ruler_constants.data[i];
+
             float3 offset{0.0f};
-            offset[(i + 2) % 3] = ruler.offset * state->voxel_extents.x;
-            pl.model = glm::translate(float4x4{}, offset);
-            pl.color = state->colors.grid;
+            offset[(i + 2) % 3] = cpu_ruler.offset * cpu->voxel_extents.x;
+            gpu_data.model = glm::translate(float4x4{}, offset);
+            gpu_data.color = colors.grid;
+
+            gpu_ruler.enabled = cpu_ruler.enabled;
         }
     }
 
@@ -912,33 +809,33 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
     {
         float4x4 voxel_xform = {};
 
-        if (state->intersect.t < INFINITY)
+        if (cpu->intersect.t < INFINITY)
         {
-            voxel_xform =
-                glm::translate(
-                    float4x4{1.f},
-                    center(reconstruct_voxel_bounds(
-                        state->intersect.voxel_coords, state->scene_bounds, VX_GRID_SIZE)) +
-                        state->voxel_extents * state->intersect.normal) *
-                glm::scale(float4x4{1.f}, 0.5f * state->voxel_extents);
+            voxel_xform = glm::translate(
+                              float4x4{1.f},
+                              center(reconstruct_voxel_bounds(
+                                  cpu->intersect.voxel_coords, cpu->scene_bounds, VX_GRID_SIZE)) +
+                                  cpu->voxel_extents * cpu->intersect.normal) *
+                          glm::scale(float4x4{1.f}, 0.5f * cpu->voxel_extents);
         }
 
-        auto& sel = state->wire_cube_constants.data[voxed_state::wire_cube_constants::selection];
+        auto& sel = gpu->wire_cube_constants.data[voxed_gpu_state::wire_cube_constants::selection];
         sel.model = voxel_xform;
-        sel.color = state->colors.selection;
+        sel.color = colors.selection;
 
-        auto& era = state->wire_cube_constants.data[voxed_state::wire_cube_constants::erase];
+        auto& era = gpu->wire_cube_constants.data[voxed_gpu_state::wire_cube_constants::erase];
         era.model = voxel_xform;
-        era.color = state->colors.erase;
+        era.color = colors.erase;
 
-        auto& scb = state->wire_cube_constants.data[voxed_state::wire_cube_constants::scene_bounds];
+        auto& scb =
+            gpu->wire_cube_constants.data[voxed_gpu_state::wire_cube_constants::scene_bounds];
         scb.model = float4x4{};
-        scb.color = state->colors.cube;
+        scb.color = colors.cube;
     }
 
     // voxel (mesh)
 
-    if (state->voxel_grid_is_dirty)
+    if (cpu->voxel_grid_is_dirty)
     {
         fprintf(stdout, "(Re)generating voxel mesh\n");
 
@@ -964,7 +861,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                 {
                     int ci = pows3(x, y, z, VX_GRID_SIZE);
                     int3 c = int3(x, y, z);
-                    const voxel_leaf& ivx = state->voxel_grid[ci];
+                    const voxel_leaf& ivx = cpu->voxel_grid[ci];
 
                     // only process solid voxels
                     if (~ivx.flags & voxel_flag_solid)
@@ -982,7 +879,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                             n.y < VX_GRID_SIZE && n.z < VX_GRID_SIZE)
                         {
                             int ni = pows3(n.x, n.y, n.z, VX_GRID_SIZE);
-                            const voxel_leaf& nvx = state->voxel_grid[ni];
+                            const voxel_leaf& nvx = cpu->voxel_grid[ni];
                             if (~nvx.flags & voxel_flag_solid)
                                 make_face = true;
                         }
@@ -991,7 +888,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
 
                         if (make_face)
                         {
-                            const bounds3f& sb = state->scene_bounds;
+                            const bounds3f& sb = cpu->scene_bounds;
                             float3 color = ivx.color;
                             vertex va, vb, vc, vd;
 
@@ -1004,7 +901,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                             //   place 4 vertices to the voxel midpoint
                             //   move vertices along the face normal
                             //   move vertices to one of the face corners
-                            float half_ext = 0.5f * state->voxel_extents.x;
+                            float half_ext = 0.5f * cpu->voxel_extents.x;
                             float3 center(
                                 (x + 0.5f) / VX_GRID_SIZE,
                                 (y + 0.5f) / VX_GRID_SIZE,
@@ -1090,7 +987,7 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                                     s.y < VX_GRID_SIZE && s.z < VX_GRID_SIZE)
                                 {
                                     int si = pows3(s.x, s.y, s.z, VX_GRID_SIZE);
-                                    const voxel_leaf& svx = state->voxel_grid[si];
+                                    const voxel_leaf& svx = cpu->voxel_grid[si];
                                     if (svx.flags & voxel_flag_solid)
                                         mask |= 1 << search_dir;
                                 }
@@ -1140,26 +1037,45 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
                     }
                 }
 
-        voxed_state::mesh& m = state->voxel_mesh;
+        voxed_gpu_state::mesh& m = gpu->voxel_mesh;
 
         if (m.vertices)
-            gpu_buffer_destroy(gpu, m.vertices), m.vertex_count = 0;
+            gpu_buffer_destroy(device, m.vertices), m.vertex_count = 0;
         if (m.indices)
-            gpu_buffer_destroy(gpu, m.indices), m.index_count = 0;
+            gpu_buffer_destroy(device, m.indices), m.index_count = 0;
 
         if (new_vbo.size() && new_ibo.size())
         {
-            m.vertices = gpu_buffer_create(gpu, new_vbo.byte_size(), gpu_buffer_type::vertex);
-            m.indices = gpu_buffer_create(gpu, new_ibo.byte_size(), gpu_buffer_type::index);
+            m.vertices = gpu_buffer_create(device, new_vbo.byte_size(), gpu_buffer_type::vertex);
+            m.indices = gpu_buffer_create(device, new_ibo.byte_size(), gpu_buffer_type::index);
 
-            gpu_buffer_update(gpu, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
-            gpu_buffer_update(gpu, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
+            gpu_buffer_update(device, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
+            gpu_buffer_update(device, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
 
             m.vertex_count = new_vbo.size();
             m.index_count = 3 * new_ibo.size();
         }
 
-        state->voxel_grid_is_dirty = false;
+        gpu->voxel_mesh_changed_recently = true;
+    }
+
+    //
+    // wire cubes
+    //
+
+    {
+        auto& wcc = gpu->wire_cube_constants;
+        wcc.enabled[voxed_gpu_state::wire_cube_constants::erase] = false;
+        wcc.enabled[voxed_gpu_state::wire_cube_constants::selection] = false;
+        wcc.enabled[voxed_gpu_state::wire_cube_constants::scene_bounds] = true;
+
+        if (cpu->intersect.t < INFINITY)
+        {
+            const u8* kb = SDL_GetKeyboardState(0);
+            bool erasing = !!kb[SDL_SCANCODE_LSHIFT];
+            wcc.enabled[voxed_gpu_state::wire_cube_constants::erase] = erasing;
+            wcc.enabled[voxed_gpu_state::wire_cube_constants::selection] = !erasing;
+        }
     }
 
     //
@@ -1168,36 +1084,145 @@ void voxed_gpu_update(voxed_state* state, gpu_device* gpu)
 
     {
         gpu_buffer_update(
-            gpu,
-            state->voxel_ruler_constants.buffer,
-            state->voxel_ruler_constants.data,
-            sizeof(state->voxel_ruler_constants.data),
+            device,
+            gpu->voxel_ruler_constants.buffer,
+            gpu->voxel_ruler_constants.data,
+            sizeof(gpu->voxel_ruler_constants.data),
             0);
 
         gpu_buffer_update(
-            gpu,
-            state->global_constants.buffer,
-            &state->global_constants.data,
-            sizeof(state->global_constants.data),
+            device,
+            gpu->global_constants.buffer,
+            &gpu->global_constants.data,
+            sizeof(gpu->global_constants.data),
             0);
 
         gpu_buffer_update(
-            gpu,
-            state->wire_cube_constants.buffer,
-            state->wire_cube_constants.data,
-            sizeof(state->wire_cube_constants.data),
-            0);
-
-        gpu_buffer_update(
-            gpu,
-            state->color_wheel.buffer,
-            &state->color_wheel.model,
-            sizeof(state->color_wheel.model),
+            device,
+            gpu->wire_cube_constants.buffer,
+            gpu->wire_cube_constants.data,
+            sizeof(gpu->wire_cube_constants.data),
             0);
     }
 }
 
-void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
+void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
+{
+    static bool hack_instant_load = false;
+    ImGui::Begin("voxed");
+    ImGui::Value("Resolution", VX_GRID_SIZE);
+    ImGui::Separator();
+    ImGui::Value("Voxel Leaf Bytes", (int)sizeof(voxel_leaf));
+    ImGui::Value("Voxel Grid Bytes", (int)sizeof(cpu->voxel_grid));
+    ImGui::Separator();
+    ImGui::Value("Total Voxels", pow3(VX_GRID_SIZE));
+    ImGui::Value("Empty Voxels", cpu->stats.voxel_empty);
+    ImGui::Value("Solid Voxels", cpu->stats.voxel_solid);
+    ImGui::Separator();
+    ImGui::Value("Vertices", gpu->voxel_mesh.vertex_count);
+    ImGui::Value("Triangles", gpu->voxel_mesh.index_count / 3);
+    ImGui::Separator();
+    ImGui::CheckboxFlags("Ambient Occlusion", &cpu->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
+    ImGui::CheckboxFlags("Directional Light", &cpu->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
+    ImGui::Separator();
+    if (ImGui::Button("Save"))
+    {
+        if (FILE* f = fopen("scene.vx", "wb"))
+        {
+            fwrite(cpu->voxel_grid, sizeof cpu->voxel_grid, 1, f);
+            fclose(f);
+            fprintf(stdout, "Saved scene\n");
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load") || hack_instant_load)
+    {
+        if (FILE* f = fopen("scene.vx", "rb"))
+        {
+            fread(cpu->voxel_grid, sizeof cpu->voxel_grid, 1, f);
+            fclose(f);
+            fprintf(stdout, "Loaded scene\n");
+            cpu->voxel_grid_is_dirty = true;
+        }
+        hack_instant_load = false;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear"))
+    {
+        memset(cpu->voxel_grid, 0, sizeof(cpu->voxel_grid));
+        cpu->voxel_grid_is_dirty = true;
+    }
+    ImGui::Separator();
+    ImGui::Text("Rulers");
+    static const char* plane_names[] = {"XY", "YZ", "ZX"};
+    for (int i = 0; i < axis_plane_count; ++i)
+    {
+        voxed_cpu_state::ruler& ruler = cpu->rulers[i];
+        ImGui::PushID(i);
+        ImGui::Text("%s", plane_names[i]);
+        ImGui::SameLine();
+        ImGui::SliderInt("##slider", &ruler.offset, -VX_GRID_SIZE / 2, VX_GRID_SIZE / 2);
+        ImGui::SameLine();
+        ImGui::Checkbox("##checkbox", &ruler.enabled);
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    ImGui::Text("Color Wheel");
+    {
+        const float wheel_diameter = 200.0f /* pixels */;
+
+        // draw color wheel texture while caching key locations & sizes
+        ImVec2 pre = ImGui::GetCursorPos();
+        ImVec2 anchor = ImGui::GetCursorScreenPos();
+        ImGui::Image(gpu->color_wheel.texture, ImVec2(wheel_diameter, wheel_diameter));
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        ImVec2 post = ImGui::GetCursorPos();
+
+        // relative mouse position
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        ImVec2 rel_pos = ImVec2(mouse_pos.x - rmin.x, mouse_pos.y - rmin.y);
+
+        // normalized mouse position [-1, 1]
+        float normx, normy;
+        normx = remap_range(rel_pos.x, 0.0f, wheel_diameter, -1.0f, 1.0f);
+        normy = remap_range(rel_pos.y, 0.0f, wheel_diameter, -1.0f, 1.0f);
+        float dist_to_origin = glm::length(float2(normx, normy));
+
+        // update color value when a click has been detected within the wheel
+        if (mouse_button_pressed(button::left) && dist_to_origin < 1.0f)
+        {
+            float angle = remap_range(glm::atan(normy, normx), -float(pi), float(pi), 0.f, 1.f);
+            cpu->brush.color_hsv = float3(angle, dist_to_origin, 1.0f);
+        }
+
+        // absolute position of the mouse cursor
+        ImVec2 hovering_pos = anchor;
+        hovering_pos.x += rel_pos.x, hovering_pos.y += rel_pos.y;
+
+        // absolute position of the selected color
+        ImVec2 selected_pos = anchor;
+        selected_pos.x += 0.5f * (rmax.x - rmin.x);
+        selected_pos.y += 0.5f * (rmax.y - rmin.y);
+        float3 hsv = cpu->brush.color_hsv;
+        float angle = remap_range(hsv.x, 0.0f, 1.0f, -pi, pi);
+        selected_pos.x += 0.5f * wheel_diameter * hsv.y * std::cos(angle);
+        selected_pos.y += 0.5f * wheel_diameter * hsv.y * std::sin(angle);
+
+        // render both hovering color and selected color
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImColor selected_color = ImColor(0.05f, 0.05f, 0.05f, 1.0f);
+        ImColor hovering_color = ImColor(0.25f, 0.25f, 0.25f, 1.0f);
+        ImGui::SetCursorPos(pre);
+        if (ImGui::IsItemHovered() && dist_to_origin < 1.0f)
+            draw_list->AddCircle(hovering_pos, 4.0f, hovering_color, 12, 2.0f);
+        draw_list->AddCircle(selected_pos, 4.0f, selected_color, 12, 2.0f);
+        ImGui::SetCursorPos(post);
+    }
+    ImGui::End();
+}
+
+void voxed_gpu_draw(voxed_gpu_state* gpu, gpu_channel* channel)
 {
     //
     // command submission
@@ -1206,95 +1231,92 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
     // voxel rulers
 
     {
-        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->voxel_ruler_constants.buffer, 2);
+        gpu_channel_set_pipeline_cmd(channel, gpu->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, gpu->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, gpu->voxel_ruler_constants.buffer, 2);
 
         for (int i = 0; i < axis_plane_count; ++i)
         {
-            const auto& ruler = state->rulers[i];
+            const auto& ruler = gpu->rulers[i];
 
             if (!ruler.enabled)
                 continue;
 
-            const voxed_state::mesh& mesh = ruler.mesh;
-            gpu_channel_set_buffer_cmd(channel, mesh.vertices, 0);
+            gpu_channel_set_buffer_cmd(channel, ruler.mesh.vertices, 0);
             gpu_channel_draw_primitives_cmd(
-                channel, gpu_primitive_type::line, 0, mesh.vertex_count, 1, i);
+                channel, gpu_primitive_type::line, 0, ruler.mesh.vertex_count, 1, i);
         }
     }
 
     // voxel cursors
 
-    if (state->intersect.t < INFINITY)
     {
-        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
-        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
+        gpu_channel_set_pipeline_cmd(channel, gpu->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, gpu->wire_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, gpu->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, gpu->wire_cube_constants.buffer, 2);
 
-        const u8* kb = SDL_GetKeyboardState(0);
-
-        if (kb[SDL_SCANCODE_LSHIFT])
+        if (gpu->wire_cube_constants.enabled[voxed_gpu_state::wire_cube_constants::erase])
         {
             gpu_channel_draw_indexed_primitives_cmd(
                 channel,
                 gpu_primitive_type::line,
-                state->wire_cube.index_count,
+                gpu->wire_cube.index_count,
                 gpu_index_type::u32,
-                state->wire_cube.indices,
+                gpu->wire_cube.indices,
                 0,
                 1,
                 0,
-                voxed_state::wire_cube_constants::erase);
+                voxed_gpu_state::wire_cube_constants::erase);
         }
-        else
+
+        if (gpu->wire_cube_constants.enabled[voxed_gpu_state::wire_cube_constants::selection])
         {
             gpu_channel_draw_indexed_primitives_cmd(
                 channel,
                 gpu_primitive_type::line,
-                state->wire_cube.index_count,
+                gpu->wire_cube.index_count,
                 gpu_index_type::u32,
-                state->wire_cube.indices,
+                gpu->wire_cube.indices,
                 0,
                 1,
                 0,
-                voxed_state::wire_cube_constants::selection);
+                voxed_gpu_state::wire_cube_constants::selection);
         }
     }
 
     // scene bounds
 
     {
-        gpu_channel_set_pipeline_cmd(channel, state->line_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->wire_cube.vertices, 0);
-        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
-        gpu_channel_set_buffer_cmd(channel, state->wire_cube_constants.buffer, 2);
+        gpu_channel_set_pipeline_cmd(channel, gpu->line_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, gpu->wire_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, gpu->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, gpu->wire_cube_constants.buffer, 2);
         gpu_channel_draw_indexed_primitives_cmd(
             channel,
             gpu_primitive_type::line,
-            state->wire_cube.index_count,
+            gpu->wire_cube.index_count,
             gpu_index_type::u32,
-            state->wire_cube.indices,
+            gpu->wire_cube.indices,
             0,
             1,
             0,
-            voxed_state::wire_cube_constants::scene_bounds);
+            voxed_gpu_state::wire_cube_constants::scene_bounds);
     }
 
     // voxels
 
-    if (state->voxel_mesh.vertex_count)
+    if (gpu->voxel_mesh.vertex_count)
     {
-        gpu_channel_set_pipeline_cmd(channel, state->voxel_mesh_shader.pipeline);
-        gpu_channel_set_buffer_cmd(channel, state->voxel_mesh.vertices, 0);
-        gpu_channel_set_buffer_cmd(channel, state->global_constants.buffer, 1);
+        gpu_channel_set_pipeline_cmd(channel, gpu->voxel_mesh_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, gpu->voxel_mesh.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, gpu->global_constants.buffer, 1);
         gpu_channel_draw_indexed_primitives_cmd(
             channel,
             gpu_primitive_type::triangle,
-            state->voxel_mesh.index_count,
+            gpu->voxel_mesh.index_count,
             gpu_index_type::u32,
-            state->voxel_mesh.indices,
+            gpu->voxel_mesh.indices,
             0,
             1,
             0,
@@ -1302,9 +1324,16 @@ void voxed_gpu_draw(voxed_state* state, gpu_channel* channel)
     }
 }
 
-void voxed_quit(voxed_state* state)
+void voxed_frame_end(voxed* state)
 {
-    // TODO(johann): get rid of delete
-    delete state;
+    // TODO(vinht): This can reset only at the very end, because both cpu
+    // update & gui update can modify it.
+    if (state->gpu->voxel_mesh_changed_recently)
+    {
+        state->cpu->voxel_grid_is_dirty = false;
+        state->gpu->voxel_mesh_changed_recently = false;
+    }
 }
+
+void voxed_quit(voxed* /*state*/) {}
 }

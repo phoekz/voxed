@@ -40,7 +40,7 @@ int main(int /*argc*/, char** /*argv*/)
     //
 
     vx::app app;
-    vx::voxed_state* voxed;
+    vx::voxed* voxed;
 
     vx::platform_init(&app.platform, app.window.title, app.window.size);
 
@@ -90,15 +90,15 @@ int main(int /*argc*/, char** /*argv*/)
         // app
 
         {
-            vx::voxed_update(voxed, app.platform, app.time.delta);
-            vx::voxed_gpu_update(voxed, app.platform.gpu);
+            vx::voxed_update(voxed->cpu, app.platform, app.time.delta);
+            vx::voxed_gpu_update(voxed->cpu, voxed->gpu, app.platform.gpu);
         }
 
         // gui
 
         {
             vx::imgui_new_frame(app.platform.window);
-            vx::voxed_gui(voxed);
+            vx::voxed_gui_update(voxed->cpu, voxed->gpu);
         }
 
         // rendering
@@ -110,11 +110,12 @@ int main(int /*argc*/, char** /*argv*/)
             vx::gpu_channel* channel = vx::gpu_channel_open(gpu);
             vx::gpu_clear_cmd_args clear_args{app.render.bg_color, 1.0f, 0};
             vx::gpu_channel_clear_cmd(channel, &clear_args);
-            vx::voxed_gpu_draw(voxed, channel);
+            vx::voxed_gpu_draw(voxed->gpu, channel);
             vx::imgui_render(gpu, channel);
             vx::gpu_channel_close(gpu, channel);
         }
 
+        vx::voxed_frame_end(voxed);
         vx::platform_frame_end(&app.platform);
     }
 
