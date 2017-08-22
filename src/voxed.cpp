@@ -173,6 +173,12 @@ struct color_pallette
     float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
 } colors;
 
+enum edit_mode
+{
+    edit_mode_box,
+    edit_mode_voxel
+};
+
 struct voxed_cpu_state
 {
     orbit_camera camera{};
@@ -200,6 +206,13 @@ struct voxed_cpu_state
     {
         u32 voxel_solid, voxel_empty;
     } stats;
+
+    edit_mode edit_mode;
+    struct
+    {
+        int3 initial_voxel_coords;
+        voxel_leaf working_voxels[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
+    } box_edit_state;
 };
 
 struct voxed_gpu_state
@@ -280,6 +293,108 @@ struct voxed_gpu_state
 static voxed_cpu_state _voxed_cpu_state;
 static voxed_gpu_state _voxed_gpu_state;
 static voxed _voxed{&_voxed_cpu_state, &_voxed_gpu_state};
+
+static void update_voxel_mode(voxed_cpu_state* cpu)
+{
+    if (cpu->intersect.t < INFINITY)
+    {
+        if (mouse_button_down(button::left))
+        {
+            const u8* kb = SDL_GetKeyboardState(0);
+
+            if (kb[SDL_SCANCODE_LSHIFT])
+            {
+                int3 p = cpu->intersect.voxel_coords;
+                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
+                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
+                {
+                    fprintf(stdout, "Erased voxel from %d %d %d\n", p.x, p.y, p.z);
+                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    cpu->voxel_grid[i].flags = 0;
+                    cpu->voxel_grid_is_dirty = true;
+                }
+            }
+            else
+            {
+                int3 p = cpu->intersect.voxel_coords + (int3)cpu->intersect.normal;
+
+                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
+                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
+                {
+                    fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
+                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
+                    cpu->voxel_grid[i].flags |= voxel_flag_solid;
+                    cpu->voxel_grid[i].color = hsv_to_rgb(cpu->brush.color_hsv);
+                    cpu->voxel_grid_is_dirty = true;
+                }
+                else
+                    fprintf(
+                        stdout,
+                        "New voxel at %d %d %d would go outside the boundary! \n",
+                        p.x,
+                        p.y,
+                        p.z);
+            }
+        }
+    }
+}
+
+static void update_box_mode(voxed_cpu_state* cpu)
+{
+    if (mouse_button_down(button::left))
+    {
+        cpu->box_edit_state.initial_voxel_coords = cpu->intersect.voxel_coords;
+    }
+
+    if (mouse_button_pressed(button::left))
+    {
+        if (cpu->intersect.t < INFINITY)
+        {
+            int3 p = cpu->intersect.voxel_coords + int3(cpu->intersect.normal);
+
+            voxel_leaf* working_voxels = cpu->box_edit_state.working_voxels;
+            const voxel_leaf* voxel_grid = cpu->voxel_grid;
+
+            std::memcpy(working_voxels, voxel_grid, sizeof(cpu->box_edit_state.working_voxels));
+
+            if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
+                glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
+            {
+                int3 begin, end;
+                begin = cpu->box_edit_state.initial_voxel_coords;
+                end = p;
+
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (begin[i] > end[i])
+                        std::swap(begin[i], end[i]);
+                }
+
+                for (int z = begin.z; z <= end.z; z++)
+                    for (int y = begin.y; y <= end.y; y++)
+                        for (int x = begin.x; x <= end.x; x++)
+                        {
+                            int i = x + y * VX_GRID_SIZE + z * VX_GRID_SIZE * VX_GRID_SIZE;
+                            // auto& voxel = state->mode_state.box.temporary_voxels[i];
+                            voxel_leaf& voxel = working_voxels[i];
+
+                            voxel.flags = voxel_flag_solid;
+                            voxel.color = hsv_to_rgb(cpu->brush.color_hsv);
+                        }
+
+                cpu->voxel_grid_is_dirty = true;
+            }
+        }
+    }
+
+    if (mouse_button_up(button::left))
+    {
+        std::memcpy(
+            cpu->voxel_grid,
+            cpu->box_edit_state.working_voxels,
+            sizeof(cpu->box_edit_state.working_voxels));
+    }
+}
 
 voxed* voxed_create(platform* platform)
 {
@@ -605,6 +720,22 @@ voxed* voxed_create(platform* platform)
     return &_voxed;
 }
 
+void voxed_process_event(voxed_cpu_state* cpu, const SDL_Event& event)
+{
+    if (event.type == SDL_KEYUP)
+    {
+        switch (event.key.keysym.scancode)
+        {
+            case SDL_SCANCODE_B:
+                cpu->edit_mode = edit_mode_box;
+                break;
+            case SDL_SCANCODE_V:
+                cpu->edit_mode = edit_mode_voxel;
+                break;
+        }
+    }
+}
+
 void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
 {
     //
@@ -638,6 +769,7 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     //
 
     {
+
         cpu->intersect = voxel_intersect_event{};
 
         ray ray = generate_camera_ray(platform, cpu->camera);
@@ -710,46 +842,13 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     // voxel editing
     //
 
-    if (cpu->intersect.t < INFINITY)
+    if (cpu->edit_mode == edit_mode_voxel)
     {
-        if (mouse_button_down(button::left))
-        {
-            const u8* kb = SDL_GetKeyboardState(0);
-
-            if (kb[SDL_SCANCODE_LSHIFT])
-            {
-                int3 p = cpu->intersect.voxel_coords;
-                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
-                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
-                {
-                    fprintf(stdout, "Erased voxel from %d %d %d\n", p.x, p.y, p.z);
-                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    cpu->voxel_grid[i].flags = 0;
-                    cpu->voxel_grid_is_dirty = true;
-                }
-            }
-            else
-            {
-                int3 p = cpu->intersect.voxel_coords + (int3)cpu->intersect.normal;
-
-                if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
-                    glm::all(glm::lessThan(p, int3{VX_GRID_SIZE})))
-                {
-                    fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
-                    i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
-                    cpu->voxel_grid[i].flags |= voxel_flag_solid;
-                    cpu->voxel_grid[i].color = hsv_to_rgb(cpu->brush.color_hsv);
-                    cpu->voxel_grid_is_dirty = true;
-                }
-                else
-                    fprintf(
-                        stdout,
-                        "New voxel at %d %d %d would go outside the boundary! \n",
-                        p.x,
-                        p.y,
-                        p.z);
-            }
-        }
+        update_voxel_mode(cpu);
+    }
+    else
+    {
+        update_box_mode(cpu);
     }
 
     //
@@ -850,6 +949,16 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
         array<vertex> new_vbo;
         array<int3> new_ibo;
 
+        const voxel_leaf* voxel_grid;
+        if (cpu->edit_mode == edit_mode_voxel)
+        {
+            voxel_grid = cpu->voxel_grid;
+        }
+        else
+        {
+            voxel_grid = cpu->box_edit_state.working_voxels;
+        }
+
         // for each solid voxel:
         //   for each face:
         //     if neighbor is empty or out of bounds:
@@ -861,7 +970,7 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
                 {
                     int ci = pows3(x, y, z, VX_GRID_SIZE);
                     int3 c = int3(x, y, z);
-                    const voxel_leaf& ivx = cpu->voxel_grid[ci];
+                    const voxel_leaf& ivx = voxel_grid[ci];
 
                     // only process solid voxels
                     if (~ivx.flags & voxel_flag_solid)
@@ -879,7 +988,7 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
                             n.y < VX_GRID_SIZE && n.z < VX_GRID_SIZE)
                         {
                             int ni = pows3(n.x, n.y, n.z, VX_GRID_SIZE);
-                            const voxel_leaf& nvx = cpu->voxel_grid[ni];
+                            const voxel_leaf& nvx = voxel_grid[ni];
                             if (~nvx.flags & voxel_flag_solid)
                                 make_face = true;
                         }
@@ -987,7 +1096,7 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
                                     s.y < VX_GRID_SIZE && s.z < VX_GRID_SIZE)
                                 {
                                     int si = pows3(s.x, s.y, s.z, VX_GRID_SIZE);
-                                    const voxel_leaf& svx = cpu->voxel_grid[si];
+                                    const voxel_leaf& svx = voxel_grid[si];
                                     if (svx.flags & voxel_flag_solid)
                                         mask |= 1 << search_dir;
                                 }
