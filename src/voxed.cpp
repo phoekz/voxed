@@ -173,10 +173,16 @@ struct color_pallette
     float4 erase{1.0f, 0.1f, 0.1f, 1.0f};
 } colors;
 
+enum edit_brush
+{
+    edit_brush_box,
+    edit_brush_voxel
+};
+
 enum edit_mode
 {
-    edit_mode_box,
-    edit_mode_voxel
+    edit_mode_add,
+    edit_mode_delete
 };
 
 struct voxed_cpu_state
@@ -207,6 +213,7 @@ struct voxed_cpu_state
         u32 voxel_solid, voxel_empty;
     } stats;
 
+    edit_brush edit_brush;
     edit_mode edit_mode;
     struct
     {
@@ -300,9 +307,7 @@ static void update_voxel_mode(voxed_cpu_state* cpu)
     {
         if (mouse_button_down(button::left))
         {
-            const u8* kb = SDL_GetKeyboardState(0);
-
-            if (kb[SDL_SCANCODE_LSHIFT])
+            if (cpu->edit_mode == edit_mode_delete)
             {
                 int3 p = cpu->intersect.voxel_coords;
                 if (glm::all(glm::greaterThanEqual(p, int3{0})) &&
@@ -409,6 +414,8 @@ voxed* voxed_create(platform* platform)
     {
         cpu->render_flags |= RENDER_FLAG_AMBIENT_OCCLUSION;
         cpu->render_flags |= RENDER_FLAG_DIRECTIONAL_LIGHT;
+        cpu->edit_brush = edit_brush_voxel;
+        cpu->edit_mode = edit_mode_add;
     }
 
     //
@@ -727,10 +734,16 @@ void voxed_process_event(voxed_cpu_state* cpu, const SDL_Event& event)
         switch (event.key.keysym.scancode)
         {
             case SDL_SCANCODE_B:
-                cpu->edit_mode = edit_mode_box;
+                cpu->edit_brush = edit_brush_box;
                 break;
             case SDL_SCANCODE_V:
-                cpu->edit_mode = edit_mode_voxel;
+                cpu->edit_brush = edit_brush_voxel;
+                break;
+            case SDL_SCANCODE_A:
+                cpu->edit_mode = edit_mode_add;
+                break;
+            case SDL_SCANCODE_D:
+                cpu->edit_mode = edit_mode_delete;
                 break;
         }
     }
@@ -842,7 +855,7 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     // voxel editing
     //
 
-    if (cpu->edit_mode == edit_mode_voxel)
+    if (cpu->edit_brush == edit_brush_voxel)
     {
         update_voxel_mode(cpu);
     }
@@ -950,7 +963,7 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
         array<int3> new_ibo;
 
         const voxel_leaf* voxel_grid;
-        if (cpu->edit_mode == edit_mode_voxel)
+        if (cpu->edit_brush == edit_brush_voxel)
         {
             voxel_grid = cpu->voxel_grid;
         }
@@ -1219,6 +1232,13 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
 {
     static bool hack_instant_load = false;
     ImGui::Begin("voxed");
+    ImGui::Text("Keyboard shortcuts");
+    ImGui::Separator();
+    ImGui::Text("A -- add");
+    ImGui::Text("D -- delete");
+    ImGui::Text("V -- voxel brush");
+    ImGui::Text("B -- box brush");
+    ImGui::Separator();
     ImGui::Value("Resolution", VX_GRID_SIZE);
     ImGui::Separator();
     ImGui::Value("Voxel Leaf Bytes", (int)sizeof(voxel_leaf));
