@@ -383,7 +383,7 @@ static void update_box_mode(voxed_cpu_state* cpu)
                             // auto& voxel = state->mode_state.box.temporary_voxels[i];
                             voxel_leaf& voxel = working_voxels[i];
 
-                            voxel.flags = voxel_flag_solid;
+                            voxel.flags = cpu->edit_mode == edit_mode_add ? voxel_flag_solid : 0;
                             voxel.color = hsv_to_rgb(cpu->brush.color_hsv);
                         }
 

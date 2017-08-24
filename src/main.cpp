@@ -82,6 +82,7 @@ int main(int /*argc*/, char** /*argv*/)
                         app.running = false;
                 }
 
+                vx::voxed_process_event(voxed->cpu, ev);
                 vx::mouse_handle_event(ev);
                 vx::imgui_process_event(&ev);
             }
