@@ -1193,8 +1193,7 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
 
         if (cpu->intersect.t < INFINITY)
         {
-            const u8* kb = SDL_GetKeyboardState(0);
-            bool erasing = !!kb[SDL_SCANCODE_LSHIFT];
+            bool erasing = cpu->edit_mode == edit_mode_delete;
             wcc.enabled[voxed_gpu_state::wire_cube_constants::erase] = erasing;
             wcc.enabled[voxed_gpu_state::wire_cube_constants::selection] = !erasing;
         }
