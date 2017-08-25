@@ -205,7 +205,7 @@ struct voxed_cpu_state
 
     struct brush
     {
-        float3 color_hsv;
+        float3 color_rgb;
     } brush;
 
     struct
@@ -329,7 +329,7 @@ static void update_voxel_mode(voxed_cpu_state* cpu)
                     fprintf(stdout, "Placed voxel at %d %d %d\n", p.x, p.y, p.z);
                     i32 i = p.x + p.y * VX_GRID_SIZE + p.z * VX_GRID_SIZE * VX_GRID_SIZE;
                     cpu->voxel_grid[i].flags |= voxel_flag_solid;
-                    cpu->voxel_grid[i].color = hsv_to_rgb(cpu->brush.color_hsv);
+                    cpu->voxel_grid[i].color = cpu->brush.color_rgb;
                     cpu->voxel_grid_is_dirty = true;
                 }
                 else
@@ -384,7 +384,7 @@ static void update_box_mode(voxed_cpu_state* cpu)
                             voxel_leaf& voxel = working_voxels[i];
 
                             voxel.flags = cpu->edit_mode == edit_mode_add ? voxel_flag_solid : 0;
-                            voxel.color = hsv_to_rgb(cpu->brush.color_hsv);
+                            voxel.color = cpu->brush.color_rgb;
                         }
 
                 cpu->voxel_grid_is_dirty = true;
@@ -622,7 +622,7 @@ voxed* voxed_create(platform* platform)
     {
         // Defaults
 
-        cpu->brush.color_hsv = float3(0.0f, 0.0f, 1.0f); // white
+        cpu->brush.color_rgb = float3(1.0f, 1.0f, 1.0f); // white
 
         // Baking HSV color wheel into a texture.
 
@@ -1295,58 +1295,11 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
         ImGui::PopID();
     }
     ImGui::Separator();
-    ImGui::Text("Color Wheel");
-    {
-        const float wheel_diameter = 200.0f /* pixels */;
-
-        // draw color wheel texture while caching key locations & sizes
-        ImVec2 pre = ImGui::GetCursorPos();
-        ImVec2 anchor = ImGui::GetCursorScreenPos();
-        ImGui::Image(gpu->color_wheel.texture, ImVec2(wheel_diameter, wheel_diameter));
-        ImVec2 rmin = ImGui::GetItemRectMin();
-        ImVec2 rmax = ImGui::GetItemRectMax();
-        ImVec2 post = ImGui::GetCursorPos();
-
-        // relative mouse position
-        ImVec2 mouse_pos = ImGui::GetMousePos();
-        ImVec2 rel_pos = ImVec2(mouse_pos.x - rmin.x, mouse_pos.y - rmin.y);
-
-        // normalized mouse position [-1, 1]
-        float normx, normy;
-        normx = remap_range(rel_pos.x, 0.0f, wheel_diameter, -1.0f, 1.0f);
-        normy = remap_range(rel_pos.y, 0.0f, wheel_diameter, -1.0f, 1.0f);
-        float dist_to_origin = glm::length(float2(normx, normy));
-
-        // update color value when a click has been detected within the wheel
-        if (mouse_button_pressed(button::left) && dist_to_origin < 1.0f)
-        {
-            float angle = remap_range(glm::atan(normy, normx), -float(pi), float(pi), 0.f, 1.f);
-            cpu->brush.color_hsv = float3(angle, dist_to_origin, 1.0f);
-        }
-
-        // absolute position of the mouse cursor
-        ImVec2 hovering_pos = anchor;
-        hovering_pos.x += rel_pos.x, hovering_pos.y += rel_pos.y;
-
-        // absolute position of the selected color
-        ImVec2 selected_pos = anchor;
-        selected_pos.x += 0.5f * (rmax.x - rmin.x);
-        selected_pos.y += 0.5f * (rmax.y - rmin.y);
-        float3 hsv = cpu->brush.color_hsv;
-        float angle = remap_range(hsv.x, 0.0f, 1.0f, -pi, pi);
-        selected_pos.x += 0.5f * wheel_diameter * hsv.y * std::cos(angle);
-        selected_pos.y += 0.5f * wheel_diameter * hsv.y * std::sin(angle);
-
-        // render both hovering color and selected color
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        ImColor selected_color = ImColor(0.05f, 0.05f, 0.05f, 1.0f);
-        ImColor hovering_color = ImColor(0.25f, 0.25f, 0.25f, 1.0f);
-        ImGui::SetCursorPos(pre);
-        if (ImGui::IsItemHovered() && dist_to_origin < 1.0f)
-            draw_list->AddCircle(hovering_pos, 4.0f, hovering_color, 12, 2.0f);
-        draw_list->AddCircle(selected_pos, 4.0f, selected_color, 12, 2.0f);
-        ImGui::SetCursorPos(post);
-    }
+    ImGuiColorEditFlags color_edit_flags = 0;
+    color_edit_flags |= ImGuiColorEditFlags_RGB;
+    color_edit_flags |= ImGuiColorEditFlags_HSV;
+    color_edit_flags |= ImGuiColorEditFlags_HEX;
+    ImGui::ColorPicker3("Color", &cpu->brush.color_rgb[0], color_edit_flags);
     ImGui::End();
 }
 
