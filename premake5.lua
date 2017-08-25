@@ -1,6 +1,8 @@
 project_name = "voxed"
 ext_dir = "ext"
 
+imgui_dir = "imgui-1.51"
+
 workspace (project_name)
     configurations { "debug", "release" }
     language ("C++")
@@ -27,9 +29,9 @@ group ("ext")
     project ("imgui")
         kind ("StaticLib")
         files {
-            path.join(ext_dir, "imgui-1.50/imgui.cpp"),
-            path.join(ext_dir, "imgui-1.50/imgui_draw.cpp"),
-            path.join(ext_dir, "imgui-1.50/*.h"),
+            path.join(ext_dir, imgui_dir, "imgui.cpp"),
+            path.join(ext_dir, imgui_dir, "imgui_draw.cpp"),
+            path.join(ext_dir, imgui_dir, "*.h"),
         }
 
 group ("")
@@ -48,7 +50,7 @@ project (project_name)
 
     includedirs {
         path.join(ext_dir, "glm-0.9.8.4/glm"),
-        path.join(ext_dir, "imgui-1.50"),
+        path.join(ext_dir, imgui_dir),
         path.join("src"),
     }
 
