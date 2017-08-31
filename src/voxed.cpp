@@ -3,6 +3,7 @@
 #include "common/math_utils.h"
 #include "common/mouse.h"
 #include "common/array.h"
+#include "editor/orbit_camera.h"
 #include "platform/filesystem.h"
 #include "integrations/imgui/imgui_sdl.h"
 
@@ -12,21 +13,6 @@ namespace vx
 {
 namespace
 {
-struct orbit_camera
-{
-    float fovy{degrees_to_radians(60.f)};
-    float near{0.01f};
-    float far{100.f};
-
-    float3 focal_point{0.f, 0.f, 0.f};
-    float polar{float(0.f)};
-    float azimuth{0.f};
-    float radius{5.f};
-    const float min_radius{1.5f}, max_radius{10.f};
-
-    float4x4 transform;
-};
-
 struct voxel_intersect_event
 {
     float t = INFINITY;
@@ -44,71 +30,6 @@ struct voxel_leaf
     float3 color;
     u32 flags;
 };
-
-void on_camera_dolly(orbit_camera& camera, float dz, float dt)
-{
-    const float scale = 8.f;
-    // the delta radius is scaled here by the radius itself, so that the scaling acts faster
-    // the further away the camera is
-    camera.radius -= dt * scale * dz * camera.radius;
-    camera.radius = clamp(camera.radius, camera.min_radius, camera.max_radius);
-}
-
-void on_camera_orbit(orbit_camera& camera, float dx, float dy, float dt)
-{
-    const float scale = 16.f;
-    camera.polar += dt * scale * degrees_to_radians(dy);
-    camera.azimuth -= dt * scale * degrees_to_radians(dx);
-    camera.polar = clamp(camera.polar, -float(0.499 * pi), float(0.499 * pi));
-}
-
-// The coordinate system used here is the following.
-// The polar is the angle between the z-axis and the y-axis
-// The azimuth is the angle between the z-axis and the x-axis.
-float3 forward(const orbit_camera& camera)
-{
-    const float cos_polar = std::cos(camera.polar);
-    return glm::normalize(float3(
-        -cos_polar * std::sin(camera.azimuth),
-        -std::sin(camera.polar),
-        -cos_polar * std::cos(camera.azimuth)));
-}
-
-float3 right(const orbit_camera& camera)
-{
-    const float cos_polar = std::cos(camera.polar);
-    float z = cos_polar * std::cos(camera.azimuth);
-    float x = cos_polar * std::sin(camera.azimuth);
-    return glm::normalize(float3(z, 0.f, -x));
-}
-
-inline float3 up(const orbit_camera& camera) { return glm::cross(right(camera), forward(camera)); }
-
-inline float3 eye(const orbit_camera& camera)
-{
-    return camera.focal_point - camera.radius * forward(camera);
-}
-
-ray generate_camera_ray(const platform& platform, const orbit_camera& camera)
-{
-    ray ray;
-    ray.origin = eye(camera);
-
-    int w, h;
-    SDL_GetWindowSize(platform.window, &w, &h);
-    const int2 coordinates = mouse_coordinates();
-    const float aspect = float(w) / h;
-    const float nx = 2.f * (float(coordinates.x) / w - .5f);
-    const float ny = -2.f * (float(coordinates.y) / h - .5f);
-
-    float vertical_extent = std::tan(0.5f * camera.fovy) * camera.near;
-    ray.direction = forward(camera) * camera.near;
-    ray.direction += aspect * nx * vertical_extent * right(camera);
-    ray.direction += ny * vertical_extent * up(camera);
-    ray.direction = glm::normalize(ray.direction);
-
-    return ray;
-}
 
 // hsv2rgb from https://stackoverflow.com/a/19873710
 float3 hue(float h)
@@ -187,7 +108,7 @@ enum edit_mode
 
 struct voxed_cpu_state
 {
-    orbit_camera camera{};
+    orbit_camera* camera;
     u32 render_flags;
 
     bounds3f scene_bounds{float3{-1.f}, float3{1.f}};
@@ -406,6 +327,8 @@ voxed* voxed_create(platform* platform)
     voxed_cpu_state* cpu = &_voxed_cpu_state;
     voxed_gpu_state* gpu = &_voxed_gpu_state;
     gpu_device* device = platform->gpu;
+
+    cpu->camera = orbit_camera_initialize();
 
     //
     // defaults
@@ -761,20 +684,13 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
         if (mouse_button_pressed(button::right) || kb[SDL_SCANCODE_SPACE])
         {
             auto delta = mouse_delta();
-            on_camera_orbit(cpu->camera, float(delta.x), float(delta.y), dt);
+            orbit_camera_rotate(cpu->camera, float(delta.x), float(delta.y), dt);
         }
 
         if (scroll_wheel_moved())
         {
-            on_camera_dolly(cpu->camera, float(-scroll_delta()), dt);
+            orbit_camera_dolly(cpu->camera, float(-scroll_delta()), dt);
         }
-
-        int w, h;
-        SDL_GetWindowSize(platform.window, &w, &h);
-
-        cpu->camera.transform =
-            glm::perspective(cpu->camera.fovy, float(w) / h, cpu->camera.near, cpu->camera.far) *
-            glm::lookAt(eye(cpu->camera), cpu->camera.focal_point, up(cpu->camera));
     }
 
     //
@@ -782,10 +698,11 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     //
 
     {
-
         cpu->intersect = voxel_intersect_event{};
 
-        ray ray = generate_camera_ray(platform, cpu->camera);
+        int w, h;
+        SDL_GetWindowSize(platform.window, &w, &h);
+        ray ray = orbit_camera_ray(cpu->camera, mouse_coordinates(), w, h);
 
         // voxel grid
 
@@ -885,7 +802,7 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     }
 }
 
-void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_device* device)
+void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, const platform& platform)
 {
     //
     // setup constants
@@ -894,7 +811,9 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
     // globals
 
     {
-        gpu->global_constants.data.camera = cpu->camera.transform;
+        int w, h;
+        SDL_GetWindowSize(platform.window, &w, &h);
+        gpu->global_constants.data.camera = orbit_camera_matrix(cpu->camera, w, h);
         gpu->global_constants.data.flags = cpu->render_flags;
     }
 
@@ -1162,17 +1081,19 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
         voxed_gpu_state::mesh& m = gpu->voxel_mesh;
 
         if (m.vertices)
-            gpu_buffer_destroy(device, m.vertices), m.vertex_count = 0;
+            gpu_buffer_destroy(platform.gpu, m.vertices), m.vertex_count = 0;
         if (m.indices)
-            gpu_buffer_destroy(device, m.indices), m.index_count = 0;
+            gpu_buffer_destroy(platform.gpu, m.indices), m.index_count = 0;
 
         if (new_vbo.size() && new_ibo.size())
         {
-            m.vertices = gpu_buffer_create(device, new_vbo.byte_size(), gpu_buffer_type::vertex);
-            m.indices = gpu_buffer_create(device, new_ibo.byte_size(), gpu_buffer_type::index);
+            m.vertices =
+                gpu_buffer_create(platform.gpu, new_vbo.byte_size(), gpu_buffer_type::vertex);
+            m.indices =
+                gpu_buffer_create(platform.gpu, new_ibo.byte_size(), gpu_buffer_type::index);
 
-            gpu_buffer_update(device, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
-            gpu_buffer_update(device, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
+            gpu_buffer_update(platform.gpu, m.vertices, new_vbo.ptr(), new_vbo.byte_size(), 0);
+            gpu_buffer_update(platform.gpu, m.indices, new_ibo.ptr(), new_ibo.byte_size(), 0);
 
             m.vertex_count = new_vbo.size();
             m.index_count = 3 * new_ibo.size();
@@ -1205,21 +1126,21 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_devi
 
     {
         gpu_buffer_update(
-            device,
+            platform.gpu,
             gpu->voxel_ruler_constants.buffer,
             gpu->voxel_ruler_constants.data,
             sizeof(gpu->voxel_ruler_constants.data),
             0);
 
         gpu_buffer_update(
-            device,
+            platform.gpu,
             gpu->global_constants.buffer,
             &gpu->global_constants.data,
             sizeof(gpu->global_constants.data),
             0);
 
         gpu_buffer_update(
-            device,
+            platform.gpu,
             gpu->wire_cube_constants.buffer,
             gpu->wire_cube_constants.data,
             sizeof(gpu->wire_cube_constants.data),
