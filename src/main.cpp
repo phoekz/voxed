@@ -15,7 +15,7 @@ struct app
 
     struct
     {
-        int2 size = int2(1600, 1200);
+        int2 size = int2(1000, 800);
         const char* title = "voxed";
     } window;
 
@@ -92,7 +92,7 @@ int main(int /*argc*/, char** /*argv*/)
 
         {
             vx::voxed_update(voxed->cpu, app.platform, app.time.delta);
-            vx::voxed_gpu_update(voxed->cpu, voxed->gpu, app.platform.gpu);
+            vx::voxed_gpu_update(voxed->cpu, voxed->gpu, app.platform);
         }
 
         // gui

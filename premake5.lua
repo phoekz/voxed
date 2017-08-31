@@ -42,6 +42,7 @@ project (project_name)
         "src/integrations/imgui/**",
         "src/platform/**",
         "src/common/**",
+        "src/editor/**",
         "src/main.cpp",
         "src/voxed.*"
     }
