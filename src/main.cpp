@@ -15,7 +15,7 @@ struct app
 
     struct
     {
-        int2 size = int2(1000, 800);
+        int2 size = int2(1600, 1200);
         const char* title = "voxed";
     } window;
 
