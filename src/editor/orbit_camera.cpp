@@ -92,7 +92,6 @@ ray orbit_camera_ray(
     ray ray;
     ray.origin = eye(*camera);
 
-    const int2 coordinates = mouse_coordinates();
     const float aspect = float(screen_width) / screen_height;
     const float nx = 2.f * (float(screen_coordinates.x) / screen_width - .5f);
     const float ny = -2.f * (float(screen_coordinates.y) / screen_height - .5f);

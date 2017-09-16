@@ -21,7 +21,7 @@ void voxed_process_event(voxed_cpu_state* cpu, const SDL_Event& event);
 
 void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt);
 
-void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, gpu_device* device);
+void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, const platform& platform);
 
 void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu);
 

@@ -668,6 +668,8 @@ void voxed_process_event(voxed_cpu_state* cpu, const SDL_Event& event)
             case SDL_SCANCODE_D:
                 cpu->edit_mode = edit_mode_delete;
                 break;
+            default:
+                break;
         }
     }
 }
