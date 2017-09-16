@@ -222,7 +222,7 @@ static voxed_cpu_state _voxed_cpu_state;
 static voxed_gpu_state _voxed_gpu_state;
 static voxed _voxed{&_voxed_cpu_state, &_voxed_gpu_state};
 
-static void update_voxel_mode(voxed_cpu_state* cpu)
+static void voxel_mode_update(voxed_cpu_state* cpu)
 {
     if (cpu->intersect.t < INFINITY)
     {
@@ -265,18 +265,30 @@ static void update_voxel_mode(voxed_cpu_state* cpu)
     }
 }
 
-static void update_box_mode(voxed_cpu_state* cpu)
+static int3 box_mode_get_voxel_coords(voxed_cpu_state* cpu)
+{
+    if (cpu->edit_mode == edit_mode_add)
+    {
+        return cpu->intersect.voxel_coords + int3(cpu->intersect.normal);
+    }
+    else
+    {
+        return cpu->intersect.voxel_coords;
+    }
+}
+
+static void box_mode_update(voxed_cpu_state* cpu)
 {
     if (mouse_button_down(button::left))
     {
-        cpu->box_edit_state.initial_voxel_coords = cpu->intersect.voxel_coords;
+        cpu->box_edit_state.initial_voxel_coords = box_mode_get_voxel_coords(cpu);
     }
 
     if (mouse_button_pressed(button::left))
     {
         if (cpu->intersect.t < INFINITY)
         {
-            int3 p = cpu->intersect.voxel_coords + int3(cpu->intersect.normal);
+            int3 p = box_mode_get_voxel_coords(cpu);
 
             voxel_leaf* working_voxels = cpu->box_edit_state.working_voxels;
             const voxel_leaf* voxel_grid = cpu->voxel_grid;
@@ -776,11 +788,11 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
 
     if (cpu->edit_brush == edit_brush_voxel)
     {
-        update_voxel_mode(cpu);
+        voxel_mode_update(cpu);
     }
     else
     {
-        update_box_mode(cpu);
+        box_mode_update(cpu);
     }
 
     //
