@@ -72,9 +72,11 @@ static_assert(VX_OS != VX_OS_UNKNOWN, "Platform detection failed");
 #if VX_PLATFORM == VX_PLATFORM_WIN32
 #define VX_NO_RETURN __declspec(noreturn)
 #define VX_FORCE_INLINE __forceinline
+#define VX_ALIGNED(x) __declspec(align(x))
 #elif VX_PLATFORM == VX_PLATFORM_POSIX
 #define VX_NO_RETURN _Noreturn
 #define VX_FORCE_INLINE __attribute__((always_inline))
+#define VX_ALIGNED(x) __attribute__((aligned(x)))
 #endif
 
 //
@@ -131,7 +133,7 @@ using uint4 = glm::uvec4;
 using float2x2 = glm::mat2;
 using float3x3 = glm::mat3;
 using float4x4 = glm::mat4;
-}
+} // namespace vx
 
 //
 // units
@@ -156,4 +158,4 @@ VX_NO_RETURN inline void fatal(const char* fmt, ...)
     va_end(args);
     std::exit(1);
 }
-}
+} // namespace vx

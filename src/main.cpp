@@ -30,8 +30,8 @@ struct app
         u64 clocks;
     } time;
 };
-}
-}
+} // namespace
+} // namespace vx
 
 int main(int /*argc*/, char** /*argv*/)
 {

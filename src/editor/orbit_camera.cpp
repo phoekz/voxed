@@ -83,6 +83,18 @@ float4x4 orbit_camera_matrix(orbit_camera* camera, int width, int height)
            glm::lookAt(eye(*camera), camera->focal_point, up(*camera));
 }
 
+float4x4 orbit_skybox_matrix(orbit_camera* camera, int width, int height)
+{
+    const float aspect_ratio = float(width) / height;
+    float4x4 projection = glm::perspective(camera->fovy, aspect_ratio, camera->near, camera->far);
+    float4x4 view = glm::lookAt(eye(*camera), camera->focal_point, up(*camera));
+    float4x4 view_without_translation = view;
+    view_without_translation[3][0] = 0.0f;
+    view_without_translation[3][1] = 0.0f;
+    view_without_translation[3][2] = 0.0f;
+    return projection * view_without_translation;
+}
+
 ray orbit_camera_ray(
     orbit_camera* camera,
     int2 screen_coordinates,
@@ -104,4 +116,4 @@ ray orbit_camera_ray(
 
     return ray;
 }
-}
+} // namespace vx
