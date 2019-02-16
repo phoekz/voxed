@@ -100,11 +100,15 @@ enum edit_brush
     edit_brush_voxel
 };
 
+static const char* edit_brush_names[] = {"box", "voxel"};
+
 enum edit_mode
 {
     edit_mode_add,
     edit_mode_delete
 };
+
+static const char* edit_mode_names[] = {"add", "delete"};
 
 struct user_config
 {
@@ -1214,6 +1218,9 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
     ImGui::Separator();
     ImGui::Value("Vertices", gpu->voxel_mesh.vertex_count);
     ImGui::Value("Triangles", gpu->voxel_mesh.index_count / 3);
+    ImGui::Separator();
+    ImGui::Text("Selected Mode: %s", edit_mode_names[cpu->edit_mode]);
+    ImGui::Text("Selected Brush: %s", edit_brush_names[cpu->edit_brush]);
     ImGui::Separator();
     ImGui::CheckboxFlags("Ambient Occlusion", &cpu->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
     ImGui::CheckboxFlags("Directional Light", &cpu->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
