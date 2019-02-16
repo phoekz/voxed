@@ -78,7 +78,7 @@ bounds3f reconstruct_voxel_bounds(
     voxel_bounds.max = voxel_bounds.min + voxel_extents;
     return voxel_bounds;
 }
-}
+} // namespace
 
 enum render_flag
 {
@@ -104,6 +104,11 @@ enum edit_mode
 {
     edit_mode_add,
     edit_mode_delete
+};
+
+struct user_config
+{
+    bool invert_zoom{false};
 };
 
 struct voxed_cpu_state
@@ -141,7 +146,27 @@ struct voxed_cpu_state
         int3 initial_voxel_coords;
         voxel_leaf working_voxels[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
     } box_edit_state;
+
+    struct user_config config;
 };
+
+static void config_save(const user_config* config)
+{
+    if (FILE* f = fopen("conf.vx", "wb"))
+    {
+        fwrite(config, sizeof *config, 1, f);
+        fclose(f);
+    }
+}
+
+static void config_load(user_config* config)
+{
+    if (FILE* f = fopen("conf.vx", "rb"))
+    {
+        fread(config, sizeof *config, 1, f);
+        fclose(f);
+    }
+}
 
 struct voxed_gpu_state
 {
@@ -340,6 +365,7 @@ voxed* voxed_create(platform* platform)
     voxed_gpu_state* gpu = &_voxed_gpu_state;
     gpu_device* device = platform->gpu;
 
+    config_load(&cpu->config);
     cpu->camera = orbit_camera_initialize();
 
     //
@@ -692,6 +718,7 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     // camera controls
     //
 
+    if (!ImGui::IsAnyWindowHovered() && !ImGui::IsAnyItemActive())
     {
         const u8* kb = SDL_GetKeyboardState(0);
 
@@ -703,7 +730,10 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
 
         if (scroll_wheel_moved())
         {
-            orbit_camera_dolly(cpu->camera, float(-scroll_delta()), dt);
+            auto delta = float(-scroll_delta());
+            if (cpu->config.invert_zoom)
+                delta = -delta;
+            orbit_camera_dolly(cpu->camera, delta, dt);
         }
     }
 
@@ -1188,6 +1218,11 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
     ImGui::CheckboxFlags("Ambient Occlusion", &cpu->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
     ImGui::CheckboxFlags("Directional Light", &cpu->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
     ImGui::Separator();
+    bool config_changed = false;
+    config_changed |= ImGui::Checkbox("Invert Zoom", &cpu->config.invert_zoom);
+    if (config_changed)
+        config_save(&cpu->config);
+    ImGui::Separator();
     if (ImGui::Button("Save"))
     {
         if (FILE* f = fopen("scene.vx", "wb"))
@@ -1352,4 +1387,4 @@ void voxed_frame_end(voxed* state)
 }
 
 void voxed_quit(voxed* /*state*/) {}
-}
+} // namespace vx
