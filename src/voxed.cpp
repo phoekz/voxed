@@ -78,12 +78,12 @@ bounds3f reconstruct_voxel_bounds(
     voxel_bounds.max = voxel_bounds.min + voxel_extents;
     return voxel_bounds;
 }
-}
+} // namespace
 
 enum render_flag
 {
-    RENDER_FLAG_AMBIENT_OCCLUSION = 1 << 0,
-    RENDER_FLAG_DIRECTIONAL_LIGHT = 1 << 1,
+    render_flag_ambient_occlusion = 1 << 0,
+    render_flag_directional_light = 1 << 1,
 };
 
 struct color_pallette
@@ -109,6 +109,11 @@ enum edit_mode
 };
 
 static const char* edit_mode_names[] = {"add", "delete"};
+
+static const float3 default_bg_color_a{0.445f, 0.566f, 0.819f};
+static const float3 default_bg_color_b{0.193f, 0.426f, 0.985f};
+static const float3 outrun_bg_color_a{0.3564f, 0.03689f, 0.7913f};
+static const float3 outrun_bg_color_b{0.00518f, 0.00091f, 0.33716f};
 
 struct voxed_cpu_state
 {
@@ -145,6 +150,21 @@ struct voxed_cpu_state
         int3 initial_voxel_coords;
         voxel_leaf working_voxels[VX_GRID_SIZE * VX_GRID_SIZE * VX_GRID_SIZE];
     } box_edit_state;
+
+    struct skybox
+    {
+        // NOTE(vinht): Angles in 0..1.
+        float sun_normalized_theta{0.75f}, sun_normalized_phi{0.5f};
+        float3 sun_direction;
+        float sun_disk_radius{0.2f};
+        float2 sun_disk_vertical_bounds;
+        float2 starfield_params{50.0f, 0.05f};
+        float3 bg_color_a{outrun_bg_color_a};
+        float3 bg_color_b{outrun_bg_color_b};
+        float3 sun_color_a{1.0, 0.87137, 0.40198};
+        float3 sun_color_b{0.76815, 0.0, 0.43966};
+        bool outrun_mode{false};
+    } skybox;
 };
 
 struct voxed_gpu_state
@@ -157,6 +177,7 @@ struct voxed_gpu_state
 
     mesh wire_cube;
     mesh solid_cube;
+    mesh sky_cube;
     mesh quad;
     mesh voxel_mesh;
 
@@ -168,6 +189,7 @@ struct voxed_gpu_state
 
     shader line_shader;
     shader voxel_mesh_shader;
+    shader skybox_shader;
 
     bool voxel_mesh_changed_recently;
 
@@ -220,6 +242,24 @@ struct voxed_gpu_state
         } data[axis_plane_count];
         gpu_buffer* buffer;
     } voxel_ruler_constants;
+
+    struct skybox_constants
+    {
+        struct data
+        {
+            float4x4 transform;
+            float3 sun_direction;
+            float sun_disk_radius;
+            float2 sun_disk_vertical_bounds;
+            float2 starfield_params;
+            float4 bg_color_a;
+            float4 bg_color_b;
+            float4 sun_color_a;
+            float4 sun_color_b;
+            int32_t outrun_mode;
+        } data;
+        gpu_buffer* buffer;
+    } skybox_constants;
 };
 
 static voxed_cpu_state _voxed_cpu_state;
@@ -338,6 +378,123 @@ static void box_mode_update(voxed_cpu_state* cpu)
     }
 }
 
+static void mesh_solid_cube_create(
+    voxed_gpu_state::mesh& mesh,
+    gpu_device* device,
+    const float3& mn,
+    const float3& mx)
+{
+    struct vertex
+    {
+        float3 position, normal;
+    };
+
+    // clang-format off
+    vertex vertices[] =
+    {
+        // -x
+        { { mn.x, mn.y, mn.z }, { -1.f, 0.f, 0.f } }, // 0
+        { { mn.x, mn.y, mx.z }, { -1.f, 0.f, 0.f } }, // 1
+        { { mn.x, mx.y, mx.z }, { -1.f, 0.f, 0.f } }, // 2
+        { { mn.x, mx.y, mn.z }, { -1.f, 0.f, 0.f } }, // 3
+        // +x
+        { { mx.x, mx.y, mn.z }, { 1.f, 0.f, 0.f } }, // 4
+        { { mx.x, mx.y, mx.z }, { 1.f, 0.f, 0.f } }, // 5
+        { { mx.x, mn.y, mx.z }, { 1.f, 0.f, 0.f } }, // 6
+        { { mx.x, mn.y, mn.z }, { 1.f, 0.f, 0.f } }, // 7
+        // -y
+        { { mx.x, mn.y, mn.z }, { 0.f, -1.f, 0.f } }, // 8
+        { { mx.x, mn.y, mx.z }, { 0.f, -1.f, 0.f } }, // 9
+        { { mn.x, mn.y, mx.z }, { 0.f, -1.f, 0.f } }, // 10
+        { { mn.x, mn.y, mn.z }, { 0.f, -1.f, 0.f } }, // 11
+        // +y
+        { { mn.x, mx.y, mn.z }, { 0.f, 1.f, 0.f } }, // 12
+        { { mn.x, mx.y, mx.z }, { 0.f, 1.f, 0.f } }, // 13
+        { { mx.x, mx.y, mx.z }, { 0.f, 1.f, 0.f } }, // 14
+        { { mx.x, mx.y, mn.z }, { 0.f, 1.f, 0.f } }, // 15
+        // -z
+        { { mn.x, mx.y, mn.z }, { 0.f, 0.f, -1.f } }, // 16
+        { { mx.x, mx.y, mn.z }, { 0.f, 0.f, -1.f } }, // 17
+        { { mx.x, mn.y, mn.z }, { 0.f, 0.f, -1.f } }, // 18
+        { { mn.x, mn.y, mn.z }, { 0.f, 0.f, -1.f } }, // 19
+        // +z
+        { { mn.x, mn.y, mx.z }, { 0.f, 0.f, 1.f } }, // 20
+        { { mx.x, mn.y, mx.z }, { 0.f, 0.f, 1.f } }, // 21
+        { { mx.x, mx.y, mx.z }, { 0.f, 0.f, 1.f } }, // 22
+        { { mn.x, mx.y, mx.z }, { 0.f, 0.f, 1.f } }, // 23
+    };
+    int3 indices[] =
+    {
+        { 0,1,2 }, { 2,3,0 }, // -x
+        { 4,5,6 }, { 6,7,4 }, // +x
+        { 8,9,10 }, { 10,11,8 }, // -y
+        { 12,13,14 }, { 14,15,12 }, // +y
+        { 16,17,18 }, { 18,19,16 }, // -z
+        { 20,21,22 }, { 22,23,20 }, // +z
+    };
+    // clang-format on
+
+    voxed_gpu_state::mesh& m = mesh;
+
+    m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
+    m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
+
+    gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
+    gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
+
+    m.vertex_count = vx_countof(vertices);
+    m.index_count = 3 * vx_countof(indices);
+}
+
+static void mesh_skybox_create(
+    voxed_gpu_state::mesh& mesh,
+    gpu_device* device,
+    const float3& mn,
+    const float3& mx)
+{
+    struct vertex
+    {
+        float3 position, normal;
+    };
+
+    // clang-format off
+    vertex vertices[] =
+    {
+        { { mn.x, mn.y, mn.z } , { } }, // 0
+        { { mx.x, mn.y, mn.z } , { } }, // 1
+        { { mn.x, mx.y, mn.z } , { } }, // 2
+        { { mx.x, mx.y, mn.z } , { } }, // 3
+        { { mn.x, mn.y, mx.z } , { } }, // 4
+        { { mx.x, mn.y, mx.z } , { } }, // 5
+        { { mn.x, mx.y, mx.z } , { } }, // 6
+        { { mx.x, mx.y, mx.z } , { } }, // 7
+    };
+    int3 indices[] =
+    {
+        { 0, 2, 6 }, { 0, 6, 4 }, // -x
+        { 1, 5, 7 }, { 1, 7, 3 }, // +x
+        { 4, 1, 0 }, { 4, 5, 1 }, // -y
+        { 2, 3, 6 }, { 3, 7, 6 }, // +y
+        { 0, 1, 2 }, { 1, 3, 2 }, // -z
+        { 4, 6, 7 }, { 4, 7, 5 }, // +z
+    };
+    // clang-format on
+
+    for (int i = 0; i < vx_countof(vertices); i++)
+        vertices[i].normal = -glm::normalize(vertices[i].position);
+
+    voxed_gpu_state::mesh& m = mesh;
+
+    m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
+    m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
+
+    gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
+    gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
+
+    m.vertex_count = vx_countof(vertices);
+    m.index_count = 3 * vx_countof(indices);
+}
+
 voxed* voxed_create(platform* platform)
 {
     voxed_cpu_state* cpu = &_voxed_cpu_state;
@@ -351,8 +508,8 @@ voxed* voxed_create(platform* platform)
     //
 
     {
-        cpu->render_flags |= RENDER_FLAG_AMBIENT_OCCLUSION;
-        cpu->render_flags |= RENDER_FLAG_DIRECTIONAL_LIGHT;
+        cpu->render_flags |= render_flag_ambient_occlusion;
+        cpu->render_flags |= render_flag_directional_light;
         cpu->edit_brush = edit_brush_voxel;
         cpu->edit_mode = edit_mode_add;
     }
@@ -400,72 +557,13 @@ voxed* voxed_create(platform* platform)
     }
 
     //
-    // solid cube
+    // solid cubes
     //
 
     {
         float3 mn{-1.0f}, mx{+1.0f};
-
-        struct vertex
-        {
-            float3 position, normal;
-        };
-
-        // clang-format off
-        vertex vertices[] =
-        {
-            // -x
-            {{mn.x, mn.y, mn.z}, {-1.f, 0.f, 0.f}}, // 0
-            {{mn.x, mn.y, mx.z}, {-1.f, 0.f, 0.f}}, // 1
-            {{mn.x, mx.y, mx.z}, {-1.f, 0.f, 0.f}}, // 2
-            {{mn.x, mx.y, mn.z}, {-1.f, 0.f, 0.f}}, // 3
-            // +x
-            {{mx.x, mx.y, mn.z}, {1.f, 0.f, 0.f}}, // 4
-            {{mx.x, mx.y, mx.z}, {1.f, 0.f, 0.f}}, // 5
-            {{mx.x, mn.y, mx.z}, {1.f, 0.f, 0.f}}, // 6
-            {{mx.x, mn.y, mn.z}, {1.f, 0.f, 0.f}}, // 7
-            // -y
-            {{mx.x, mn.y, mn.z}, {0.f, -1.f, 0.f}}, // 8
-            {{mx.x, mn.y, mx.z}, {0.f, -1.f, 0.f}}, // 9
-            {{mn.x, mn.y, mx.z}, {0.f, -1.f, 0.f}}, // 10
-            {{mn.x, mn.y, mn.z}, {0.f, -1.f, 0.f}}, // 11
-            // +y
-            {{mn.x, mx.y, mn.z}, {0.f, 1.f, 0.f}}, // 12
-            {{mn.x, mx.y, mx.z}, {0.f, 1.f, 0.f}}, // 13
-            {{mx.x, mx.y, mx.z}, {0.f, 1.f, 0.f}}, // 14
-            {{mx.x, mx.y, mn.z}, {0.f, 1.f, 0.f}}, // 15
-            // -z
-            {{mn.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 16
-            {{mx.x, mx.y, mn.z}, {0.f, 0.f, -1.f}}, // 17
-            {{mx.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 18
-            {{mn.x, mn.y, mn.z}, {0.f, 0.f, -1.f}}, // 19
-            // +z
-            {{mn.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 20
-            {{mx.x, mn.y, mx.z}, {0.f, 0.f, 1.f}}, // 21
-            {{mx.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 22
-            {{mn.x, mx.y, mx.z}, {0.f, 0.f, 1.f}}, // 23
-        };
-        int3 indices[] =
-        {
-            {0,1,2}, {2,3,0}, // -x
-            {4,5,6}, {6,7,4}, // +x
-            {8,9,10}, {10,11,8}, // -y
-            {12,13,14}, {14,15,12}, // +y
-            {16,17,18}, {18,19,16}, // -z
-            {20,21,22}, {22,23,20}, // +z
-        };
-        // clang-format on
-
-        voxed_gpu_state::mesh& m = gpu->solid_cube;
-
-        m.vertices = gpu_buffer_create(device, sizeof(vertices), gpu_buffer_type::vertex);
-        m.indices = gpu_buffer_create(device, sizeof(indices), gpu_buffer_type::index);
-
-        gpu_buffer_update(device, m.vertices, vertices, sizeof(vertices), 0);
-        gpu_buffer_update(device, m.indices, indices, sizeof(indices), 0);
-
-        m.vertex_count = vx_countof(vertices);
-        m.index_count = 3 * vx_countof(indices);
+        mesh_solid_cube_create(gpu->solid_cube, device, mn, mx);
+        mesh_skybox_create(gpu->sky_cube, device, mn, mx);
     }
 
     //
@@ -608,7 +706,7 @@ voxed* voxed_create(platform* platform)
     //
 
     {
-        gpu_pipeline_options line_opt = {}, voxel_mesh_opt = {};
+        gpu_pipeline_options line_opt = {}, voxel_mesh_opt = {}, skybox_opt = {};
 
         line_opt.blend_enabled = false;
         line_opt.culling_enabled = true;
@@ -619,6 +717,11 @@ voxed* voxed_create(platform* platform)
         voxel_mesh_opt.culling_enabled = true;
         voxel_mesh_opt.depth_test_enabled = true;
         voxel_mesh_opt.depth_write_enabled = true;
+
+        skybox_opt.blend_enabled = false;
+        skybox_opt.culling_enabled = true;
+        skybox_opt.depth_test_enabled = true;
+        skybox_opt.depth_write_enabled = true;
 
 #if VX_GRAPHICS_API == VX_GRAPHICS_API_METAL
 #define SHADER_PATH(name) "shaders/mtl/" name ".metallib"
@@ -634,6 +737,7 @@ voxed* voxed_create(platform* platform)
         } sources[] = {
             {SHADER_PATH("line"), gpu->line_shader, line_opt},
             {SHADER_PATH("voxel_mesh"), gpu->voxel_mesh_shader, voxel_mesh_opt},
+            {SHADER_PATH("skybox"), gpu->skybox_shader, skybox_opt},
         };
 
 #undef SHADER_PATH
@@ -661,6 +765,8 @@ voxed* voxed_create(platform* platform)
             device, sizeof(gpu->wire_cube_constants.data), gpu_buffer_type::constant);
         gpu->voxel_ruler_constants.buffer = gpu_buffer_create(
             device, sizeof(gpu->voxel_ruler_constants.data), gpu_buffer_type::constant);
+        gpu->skybox_constants.buffer = gpu_buffer_create(
+            device, sizeof(gpu->skybox_constants.data), gpu_buffer_type::constant);
     }
 
     return &_voxed;
@@ -818,6 +924,37 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
                         cpu->stats.voxel_empty++;
                 }
     }
+
+    //
+    // skybox
+    //
+
+    {
+        float sun_theta =
+            remap_range(cpu->skybox.sun_normalized_theta, 0.0f, 1.0f, 0.0f, 2.0f * pi);
+        float sun_phi = remap_range(cpu->skybox.sun_normalized_phi, 0.0f, 1.0f, 0.0f, pi);
+
+        cpu->skybox.sun_direction.x = cosf(sun_theta) * sinf(sun_phi);
+        cpu->skybox.sun_direction.y = cosf(sun_phi);
+        cpu->skybox.sun_direction.z = sinf(sun_theta) * sinf(sun_phi);
+
+        const float3 up{0.0f, 1.0f, 0.0f};
+        cpu->skybox.sun_disk_vertical_bounds.x =
+            glm::dot(up, cpu->skybox.sun_direction - up * cpu->skybox.sun_disk_radius);
+        cpu->skybox.sun_disk_vertical_bounds.y =
+            glm::dot(up, cpu->skybox.sun_direction + up * cpu->skybox.sun_disk_radius);
+
+        if (cpu->skybox.outrun_mode)
+        {
+            cpu->skybox.bg_color_a = outrun_bg_color_a;
+            cpu->skybox.bg_color_b = outrun_bg_color_b;
+        }
+        else
+        {
+            cpu->skybox.bg_color_a = default_bg_color_a;
+            cpu->skybox.bg_color_b = default_bg_color_b;
+        }
+    }
 }
 
 void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, const platform& platform)
@@ -833,6 +970,17 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, const pl
         SDL_GetWindowSize(platform.window, &w, &h);
         gpu->global_constants.data.camera = orbit_camera_matrix(cpu->camera, w, h);
         gpu->global_constants.data.flags = cpu->render_flags;
+
+        gpu->skybox_constants.data.transform = orbit_skybox_matrix(cpu->camera, w, h);
+        gpu->skybox_constants.data.sun_direction = cpu->skybox.sun_direction;
+        gpu->skybox_constants.data.sun_disk_radius = cpu->skybox.sun_disk_radius;
+        gpu->skybox_constants.data.sun_disk_vertical_bounds = cpu->skybox.sun_disk_vertical_bounds;
+        gpu->skybox_constants.data.starfield_params = cpu->skybox.starfield_params;
+        gpu->skybox_constants.data.bg_color_a = float4_from_float3(cpu->skybox.bg_color_a, 1.0f);
+        gpu->skybox_constants.data.bg_color_b = float4_from_float3(cpu->skybox.bg_color_b, 1.0f);
+        gpu->skybox_constants.data.sun_color_a = float4_from_float3(cpu->skybox.sun_color_a, 1.0f);
+        gpu->skybox_constants.data.sun_color_b = float4_from_float3(cpu->skybox.sun_color_b, 1.0f);
+        gpu->skybox_constants.data.outrun_mode = (int32_t)cpu->skybox.outrun_mode;
     }
 
     // voxel rulers
@@ -1163,6 +1311,13 @@ void voxed_gpu_update(const voxed_cpu_state* cpu, voxed_gpu_state* gpu, const pl
             gpu->wire_cube_constants.data,
             sizeof(gpu->wire_cube_constants.data),
             0);
+
+        gpu_buffer_update(
+            platform.gpu,
+            gpu->skybox_constants.buffer,
+            &gpu->skybox_constants.data,
+            sizeof(gpu->skybox_constants.data),
+            0);
     }
 }
 
@@ -1192,8 +1347,19 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
     ImGui::Text("Selected Mode: %s", edit_mode_names[cpu->edit_mode]);
     ImGui::Text("Selected Brush: %s", edit_brush_names[cpu->edit_brush]);
     ImGui::Separator();
-    ImGui::CheckboxFlags("Ambient Occlusion", &cpu->render_flags, RENDER_FLAG_AMBIENT_OCCLUSION);
-    ImGui::CheckboxFlags("Directional Light", &cpu->render_flags, RENDER_FLAG_DIRECTIONAL_LIGHT);
+    ImGui::CheckboxFlags("Ambient Occlusion", &cpu->render_flags, render_flag_ambient_occlusion);
+    ImGui::CheckboxFlags("Directional Light", &cpu->render_flags, render_flag_directional_light);
+    ImGui::Separator();
+    ImGui::SliderFloat("Sun Theta", &cpu->skybox.sun_normalized_theta, 0.0f, 1.0f);
+    ImGui::SliderFloat("Sun Phi", &cpu->skybox.sun_normalized_phi, 0.0f, 1.0f);
+    ImGui::SliderFloat("Sun Size", &cpu->skybox.sun_disk_radius, 0.0f, 1.0f);
+    ImGui::SliderFloat("Star Density", &cpu->skybox.starfield_params.x, 0.0f, 128.0f);
+    ImGui::SliderFloat("Star Size", &cpu->skybox.starfield_params.y, 0.0f, 0.2f);
+    ImGui::ColorEdit3("Background Color A", &cpu->skybox.bg_color_a.x);
+    ImGui::ColorEdit3("Background Color B", &cpu->skybox.bg_color_b.x);
+    ImGui::ColorEdit3("Sun Color A", &cpu->skybox.sun_color_a.x);
+    ImGui::ColorEdit3("Sun Color B", &cpu->skybox.sun_color_b.x);
+    ImGui::Checkbox("Outrun", &cpu->skybox.outrun_mode);
     ImGui::Separator();
     if (ImGui::Button("Save"))
     {
@@ -1345,6 +1511,25 @@ void voxed_gpu_draw(voxed_gpu_state* gpu, gpu_channel* channel)
             0,
             0);
     }
+
+    // skybox
+
+    {
+        gpu_channel_set_pipeline_cmd(channel, gpu->skybox_shader.pipeline);
+        gpu_channel_set_buffer_cmd(channel, gpu->sky_cube.vertices, 0);
+        gpu_channel_set_buffer_cmd(channel, gpu->global_constants.buffer, 1);
+        gpu_channel_set_buffer_cmd(channel, gpu->skybox_constants.buffer, 2);
+        gpu_channel_draw_indexed_primitives_cmd(
+            channel,
+            gpu_primitive_type::triangle,
+            gpu->sky_cube.index_count,
+            gpu_index_type::u32,
+            gpu->sky_cube.indices,
+            0,
+            1,
+            0,
+            0);
+    }
 }
 
 void voxed_frame_end(voxed* state)
@@ -1359,4 +1544,4 @@ void voxed_frame_end(voxed* state)
 }
 
 void voxed_quit(voxed* /*state*/) {}
-}
+} // namespace vx

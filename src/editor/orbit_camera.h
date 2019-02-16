@@ -16,9 +16,11 @@ void orbit_camera_rotate(orbit_camera* camera, float dx, float dy, float dt);
 
 float4x4 orbit_camera_matrix(orbit_camera* camera, int screen_width, int screen_height);
 
+float4x4 orbit_skybox_matrix(orbit_camera* camera, int screen_width, int screen_height);
+
 ray orbit_camera_ray(
     orbit_camera* camera,
     int2 screen_coordinates,
     int screen_width,
     int screen_height);
-}
+} // namespace vx

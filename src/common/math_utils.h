@@ -65,4 +65,11 @@ VX_FORCE_INLINE T max2(const T& a, const T& b)
 {
     return a > b ? a : b;
 }
+
+template<typename ScalarType>
+VX_FORCE_INLINE glm::tvec4<ScalarType> float4_from_float3(glm::tvec3<ScalarType> v, ScalarType w)
+{
+    return glm::tvec4<ScalarType>(v.x, v.y, v.z, w);
 }
+
+} // namespace vx
