@@ -115,6 +115,11 @@ static const float3 default_bg_color_b{0.193f, 0.426f, 0.985f};
 static const float3 outrun_bg_color_a{0.3564f, 0.03689f, 0.7913f};
 static const float3 outrun_bg_color_b{0.00518f, 0.00091f, 0.33716f};
 
+struct user_config
+{
+    bool invert_zoom{false};
+};
+
 struct voxed_cpu_state
 {
     orbit_camera* camera;
@@ -165,7 +170,27 @@ struct voxed_cpu_state
         float3 sun_color_b{0.76815, 0.0, 0.43966};
         bool outrun_mode{false};
     } skybox;
+
+    struct user_config config;
 };
+
+static void config_save(const user_config* config)
+{
+    if (FILE* f = fopen("conf.vx", "wb"))
+    {
+        fwrite(config, sizeof *config, 1, f);
+        fclose(f);
+    }
+}
+
+static void config_load(user_config* config)
+{
+    if (FILE* f = fopen("conf.vx", "rb"))
+    {
+        fread(config, sizeof *config, 1, f);
+        fclose(f);
+    }
+}
 
 struct voxed_gpu_state
 {
@@ -501,6 +526,7 @@ voxed* voxed_create(platform* platform)
     voxed_gpu_state* gpu = &_voxed_gpu_state;
     gpu_device* device = platform->gpu;
 
+    config_load(&cpu->config);
     cpu->camera = orbit_camera_initialize();
 
     //
@@ -802,6 +828,7 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
     // camera controls
     //
 
+    if (!ImGui::IsAnyWindowHovered() && !ImGui::IsAnyItemActive())
     {
         const u8* kb = SDL_GetKeyboardState(0);
 
@@ -813,7 +840,10 @@ void voxed_update(voxed_cpu_state* cpu, const platform& platform, float dt)
 
         if (scroll_wheel_moved())
         {
-            orbit_camera_dolly(cpu->camera, float(-scroll_delta()), dt);
+            auto delta = float(-scroll_delta());
+            if (cpu->config.invert_zoom)
+                delta = -delta;
+            orbit_camera_dolly(cpu->camera, delta, dt);
         }
     }
 
@@ -1360,6 +1390,11 @@ void voxed_gui_update(voxed_cpu_state* cpu, const voxed_gpu_state* gpu)
     ImGui::ColorEdit3("Sun Color A", &cpu->skybox.sun_color_a.x);
     ImGui::ColorEdit3("Sun Color B", &cpu->skybox.sun_color_b.x);
     ImGui::Checkbox("Outrun", &cpu->skybox.outrun_mode);
+    ImGui::Separator();
+    bool config_changed = false;
+    config_changed |= ImGui::Checkbox("Invert Zoom", &cpu->config.invert_zoom);
+    if (config_changed)
+        config_save(&cpu->config);
     ImGui::Separator();
     if (ImGui::Button("Save"))
     {
