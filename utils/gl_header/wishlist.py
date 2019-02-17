@@ -21,7 +21,6 @@ enums = [
     "GL_SHADER_STORAGE_BUFFER",
     "GL_DYNAMIC_STORAGE_BIT",
     # Textures
-    "GL_TEXTURE0",
     "GL_TEXTURE_2D",
     "GL_TEXTURE_WRAP_S",
     "GL_TEXTURE_WRAP_T",
