@@ -27,7 +27,7 @@ for group in gl_version_groups_raw:
     gl_version = tuple(int(x) for x in re.findall("\d_\d", lines[0])[0].split("_"))
     gl_version_groups[gl_version] = lines
 
-gl_version_groups = { k: v for k, v in gl_version_groups.items() if 10 * k[0] + k[1] < 45 }
+gl_version_groups = { k: v for k, v in gl_version_groups.items() if 10 * k[0] + k[1] < 50 }
 for k, v in gl_version_groups.items():
     lines = list(filter(lambda x: not re.match("#define GL_VERSION_\d_\d", x), v))
     defines = list(filter(lambda x: re.match("#define \w+[ ]+\w+", x), lines))
@@ -58,7 +58,7 @@ type_table = {
     "GLuint64": "vx::u64",
     "GLushort": "vx::u16",
     "void": "void",
-    "GLDEBUGPROC": "void",
+    "GLDEBUGPROC": "vx_gl_debug_proc",
 }
 
 def lex_type(line):
@@ -119,6 +119,8 @@ with open(args.output, "w") as file:
     p("// clang-format off")
     p()
     list(map(lambda d: p("#define {id} 0x{val:08x}u".format(id=d["id"], val=d["val"])), final_defs))
+    p()
+    p("typedef void(vx_gl_debug_proc)(vx::i32, vx::i32, vx::u32, vx::i32, vx::iptr, const char*, void*);")
     p()
     list(map(lambda f: p("extern {ret}(*{id})({sig});".format(ret=strtype(f["ret"]), id=f["id"], sig=strsig(f["sig"], True))), final_funcs))
     p()

@@ -19,7 +19,7 @@ enums = [
     # Buffer Objects
     "GL_ELEMENT_ARRAY_BUFFER",
     "GL_SHADER_STORAGE_BUFFER",
-    "GL_STATIC_DRAW",
+    "GL_DYNAMIC_STORAGE_BIT",
     # Textures
     "GL_TEXTURE0",
     "GL_TEXTURE_2D",
@@ -52,8 +52,32 @@ enums = [
     # Shaders
     "GL_VERTEX_SHADER",
     "GL_FRAGMENT_SHADER",
-    "GL_COMPILE_STATUS",
+    "GL_VERTEX_SHADER_BIT",
+    "GL_FRAGMENT_SHADER_BIT",
     "GL_LINK_STATUS",
+    # Introspection
+    "GL_INFO_LOG_LENGTH",
+    # Debug
+    "GL_DONT_CARE",
+    "GL_DEBUG_OUTPUT",
+    "GL_DEBUG_OUTPUT_SYNCHRONOUS",
+    "GL_DEBUG_SOURCE_API",
+    "GL_DEBUG_SOURCE_WINDOW_SYSTEM",
+    "GL_DEBUG_SOURCE_SHADER_COMPILER",
+    "GL_DEBUG_SOURCE_THIRD_PARTY",
+    "GL_DEBUG_SOURCE_APPLICATION",
+    "GL_DEBUG_SOURCE_OTHER",
+    "GL_DEBUG_TYPE_ERROR",
+    "GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR",
+    "GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR",
+    "GL_DEBUG_TYPE_PORTABILITY",
+    "GL_DEBUG_TYPE_PERFORMANCE",
+    "GL_DEBUG_TYPE_MARKER",
+    "GL_DEBUG_TYPE_OTHER",
+    "GL_DEBUG_SEVERITY_HIGH",
+    "GL_DEBUG_SEVERITY_MEDIUM",
+    "GL_DEBUG_SEVERITY_LOW",
+    "GL_DEBUG_SEVERITY_NOTIFICATION",
 ]
 
 functions = [
@@ -73,45 +97,43 @@ functions = [
     "glClearDepth",
     "glClearStencil",
     # Buffer Objects
-    "glGenBuffers",
+    "glCreateBuffers",
     "glBindBuffer",
     "glBindBufferBase",
-    "glBufferData",
-    "glBufferSubData",
+    "glNamedBufferStorage",
+    "glNamedBufferSubData",
     "glDeleteBuffers",
     # Vertex Array Objects
-    "glGenVertexArrays",
+    "glCreateVertexArrays",
     "glBindVertexArray",
     # Textures
-    "glGenTextures",
-    "glBindTexture",
-    "glActiveTexture",
-    "glTexImage2D",
+    "glCreateTextures",
+    "glTextureStorage2D",
+    "glTextureSubImage2D",
+    "glBindTextureUnit",
     "glPixelStorei",
     "glDeleteTextures",
     # Samplers
-    "glGenSamplers",
-    "glBindSampler",
+    "glCreateSamplers",
+    "glBindSamplers",
     "glSamplerParameteri",
     "glDeleteSamplers",
     # Shaders
-    "glCreateShader",
-    "glShaderSource",
-    "glCompileShader",
-    "glCreateProgram",
-    "glAttachShader",
-    "glLinkProgram",
-    "glUseProgram",
-    "glDeleteShader",
+    "glCreateShaderProgramv",
+    "glCreateProgramPipelines",
+    "glUseProgramStages",
+    "glBindProgramPipeline",
     "glDeleteProgram",
+    "glDeleteProgramPipelines",
     # Uniforms
-    "glUniform1i",
+    "glProgramUniform1i",
     # Draw Calls
     "glDrawArraysInstancedBaseInstance",
     "glDrawElementsInstancedBaseVertexBaseInstance",
     # Introspection
-    "glGetShaderiv",
-    "glGetShaderInfoLog",
     "glGetProgramiv",
     "glGetProgramInfoLog",
+    # Debug
+    "glDebugMessageCallback",
+    "glDebugMessageControl",
 ]
